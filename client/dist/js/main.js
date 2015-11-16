@@ -1,12 +1,4439 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-require('angular')
+var angular = require('angular');
+require('angular-ui-router');
+require('mapbox');
+require('./directives/mapbox');
+require('./components/home/home');
 
-var app = angular.module('app', [])
 
-app.controller('MainController', function($scope) {
-    $scope.message = 'Angular Works!'
+var app = angular.module('app', [
+  'ui.router',
+  'app.home'
+]);
+
+app.directive('mapbox', require('./directives/mapbox'));
+
+app.config(['$stateProvider', "$urlRouteProvider", function($stateProvider, $urlRouteProvider) {
+  $urlRouteProvider.otherwise('/');
+
+  $stateProvider
+  .state('home', {
+    templateUrl: 'src/scripts/components/home/home.html',
+    controller: "HomeController",
+    url: '/'
+  })
+}])
+
+
+},{"./components/home/home":2,"./directives/mapbox":3,"angular":6,"angular-ui-router":4,"mapbox":20}],2:[function(require,module,exports){
+;
+(function() {
+  'use strict';
+  angular.module('app.home', [])
+    .controller('HomeController', ['$location', function($location) {
+      var vm = this;
+
+      vm.callback = function(map) {
+        vm.map = map;
+        map.setView([37.773, -122.446], 13);
+      };
+    }])
 })
-},{"angular":3}],2:[function(require,module,exports){
+
+},{}],3:[function(require,module,exports){
+module.exports = function() {
+  var _mapboxMap;
+  return {
+    // restrict this directive to an html element ('E':element, 'A': attribute, 'C': component)
+    restrict: 'E',
+    replace: true,
+    // create isolate scope for the mapbox directive element, bind the variable callback to itself
+    scope: {
+      callback: "="
+    },
+    template: '<div></div>',
+    // link function allows the directive to manipulate the DOM
+    link: function(scope, element, attributes) {
+      // molly's public token
+      L.mapbox.accessToken = 'pk.eyJ1IjoibWxsb3lkIiwiYSI6Im9nMDN3aW8ifQ.mwiVAv4E-1OeaoR25QZAvw';
+      var map = L.mapbox.map(element[0], 'mapbox.emerald');
+      scope.callback(map);
+    }
+  };
+};
+
+},{}],4:[function(require,module,exports){
+/**
+ * State-based routing for AngularJS
+ * @version v0.2.15
+ * @link http://angular-ui.github.com/
+ * @license MIT License, http://www.opensource.org/licenses/MIT
+ */
+
+/* commonjs package manager support (eg componentjs) */
+if (typeof module !== "undefined" && typeof exports !== "undefined" && module.exports === exports){
+  module.exports = 'ui.router';
+}
+
+(function (window, angular, undefined) {
+/*jshint globalstrict:true*/
+/*global angular:false*/
+'use strict';
+
+var isDefined = angular.isDefined,
+    isFunction = angular.isFunction,
+    isString = angular.isString,
+    isObject = angular.isObject,
+    isArray = angular.isArray,
+    forEach = angular.forEach,
+    extend = angular.extend,
+    copy = angular.copy;
+
+function inherit(parent, extra) {
+  return extend(new (extend(function() {}, { prototype: parent }))(), extra);
+}
+
+function merge(dst) {
+  forEach(arguments, function(obj) {
+    if (obj !== dst) {
+      forEach(obj, function(value, key) {
+        if (!dst.hasOwnProperty(key)) dst[key] = value;
+      });
+    }
+  });
+  return dst;
+}
+
+/**
+ * Finds the common ancestor path between two states.
+ *
+ * @param {Object} first The first state.
+ * @param {Object} second The second state.
+ * @return {Array} Returns an array of state names in descending order, not including the root.
+ */
+function ancestors(first, second) {
+  var path = [];
+
+  for (var n in first.path) {
+    if (first.path[n] !== second.path[n]) break;
+    path.push(first.path[n]);
+  }
+  return path;
+}
+
+/**
+ * IE8-safe wrapper for `Object.keys()`.
+ *
+ * @param {Object} object A JavaScript object.
+ * @return {Array} Returns the keys of the object as an array.
+ */
+function objectKeys(object) {
+  if (Object.keys) {
+    return Object.keys(object);
+  }
+  var result = [];
+
+  forEach(object, function(val, key) {
+    result.push(key);
+  });
+  return result;
+}
+
+/**
+ * IE8-safe wrapper for `Array.prototype.indexOf()`.
+ *
+ * @param {Array} array A JavaScript array.
+ * @param {*} value A value to search the array for.
+ * @return {Number} Returns the array index value of `value`, or `-1` if not present.
+ */
+function indexOf(array, value) {
+  if (Array.prototype.indexOf) {
+    return array.indexOf(value, Number(arguments[2]) || 0);
+  }
+  var len = array.length >>> 0, from = Number(arguments[2]) || 0;
+  from = (from < 0) ? Math.ceil(from) : Math.floor(from);
+
+  if (from < 0) from += len;
+
+  for (; from < len; from++) {
+    if (from in array && array[from] === value) return from;
+  }
+  return -1;
+}
+
+/**
+ * Merges a set of parameters with all parameters inherited between the common parents of the
+ * current state and a given destination state.
+ *
+ * @param {Object} currentParams The value of the current state parameters ($stateParams).
+ * @param {Object} newParams The set of parameters which will be composited with inherited params.
+ * @param {Object} $current Internal definition of object representing the current state.
+ * @param {Object} $to Internal definition of object representing state to transition to.
+ */
+function inheritParams(currentParams, newParams, $current, $to) {
+  var parents = ancestors($current, $to), parentParams, inherited = {}, inheritList = [];
+
+  for (var i in parents) {
+    if (!parents[i].params) continue;
+    parentParams = objectKeys(parents[i].params);
+    if (!parentParams.length) continue;
+
+    for (var j in parentParams) {
+      if (indexOf(inheritList, parentParams[j]) >= 0) continue;
+      inheritList.push(parentParams[j]);
+      inherited[parentParams[j]] = currentParams[parentParams[j]];
+    }
+  }
+  return extend({}, inherited, newParams);
+}
+
+/**
+ * Performs a non-strict comparison of the subset of two objects, defined by a list of keys.
+ *
+ * @param {Object} a The first object.
+ * @param {Object} b The second object.
+ * @param {Array} keys The list of keys within each object to compare. If the list is empty or not specified,
+ *                     it defaults to the list of keys in `a`.
+ * @return {Boolean} Returns `true` if the keys match, otherwise `false`.
+ */
+function equalForKeys(a, b, keys) {
+  if (!keys) {
+    keys = [];
+    for (var n in a) keys.push(n); // Used instead of Object.keys() for IE8 compatibility
+  }
+
+  for (var i=0; i<keys.length; i++) {
+    var k = keys[i];
+    if (a[k] != b[k]) return false; // Not '===', values aren't necessarily normalized
+  }
+  return true;
+}
+
+/**
+ * Returns the subset of an object, based on a list of keys.
+ *
+ * @param {Array} keys
+ * @param {Object} values
+ * @return {Boolean} Returns a subset of `values`.
+ */
+function filterByKeys(keys, values) {
+  var filtered = {};
+
+  forEach(keys, function (name) {
+    filtered[name] = values[name];
+  });
+  return filtered;
+}
+
+// like _.indexBy
+// when you know that your index values will be unique, or you want last-one-in to win
+function indexBy(array, propName) {
+  var result = {};
+  forEach(array, function(item) {
+    result[item[propName]] = item;
+  });
+  return result;
+}
+
+// extracted from underscore.js
+// Return a copy of the object only containing the whitelisted properties.
+function pick(obj) {
+  var copy = {};
+  var keys = Array.prototype.concat.apply(Array.prototype, Array.prototype.slice.call(arguments, 1));
+  forEach(keys, function(key) {
+    if (key in obj) copy[key] = obj[key];
+  });
+  return copy;
+}
+
+// extracted from underscore.js
+// Return a copy of the object omitting the blacklisted properties.
+function omit(obj) {
+  var copy = {};
+  var keys = Array.prototype.concat.apply(Array.prototype, Array.prototype.slice.call(arguments, 1));
+  for (var key in obj) {
+    if (indexOf(keys, key) == -1) copy[key] = obj[key];
+  }
+  return copy;
+}
+
+function pluck(collection, key) {
+  var result = isArray(collection) ? [] : {};
+
+  forEach(collection, function(val, i) {
+    result[i] = isFunction(key) ? key(val) : val[key];
+  });
+  return result;
+}
+
+function filter(collection, callback) {
+  var array = isArray(collection);
+  var result = array ? [] : {};
+  forEach(collection, function(val, i) {
+    if (callback(val, i)) {
+      result[array ? result.length : i] = val;
+    }
+  });
+  return result;
+}
+
+function map(collection, callback) {
+  var result = isArray(collection) ? [] : {};
+
+  forEach(collection, function(val, i) {
+    result[i] = callback(val, i);
+  });
+  return result;
+}
+
+/**
+ * @ngdoc overview
+ * @name ui.router.util
+ *
+ * @description
+ * # ui.router.util sub-module
+ *
+ * This module is a dependency of other sub-modules. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ *
+ */
+angular.module('ui.router.util', ['ng']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router.router
+ * 
+ * @requires ui.router.util
+ *
+ * @description
+ * # ui.router.router sub-module
+ *
+ * This module is a dependency of other sub-modules. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ */
+angular.module('ui.router.router', ['ui.router.util']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router.state
+ * 
+ * @requires ui.router.router
+ * @requires ui.router.util
+ *
+ * @description
+ * # ui.router.state sub-module
+ *
+ * This module is a dependency of the main ui.router module. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ * 
+ */
+angular.module('ui.router.state', ['ui.router.router', 'ui.router.util']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router
+ *
+ * @requires ui.router.state
+ *
+ * @description
+ * # ui.router
+ * 
+ * ## The main module for ui.router 
+ * There are several sub-modules included with the ui.router module, however only this module is needed
+ * as a dependency within your angular app. The other modules are for organization purposes. 
+ *
+ * The modules are:
+ * * ui.router - the main "umbrella" module
+ * * ui.router.router - 
+ * 
+ * *You'll need to include **only** this module as the dependency within your angular app.*
+ * 
+ * <pre>
+ * <!doctype html>
+ * <html ng-app="myApp">
+ * <head>
+ *   <script src="js/angular.js"></script>
+ *   <!-- Include the ui-router script -->
+ *   <script src="js/angular-ui-router.min.js"></script>
+ *   <script>
+ *     // ...and add 'ui.router' as a dependency
+ *     var myApp = angular.module('myApp', ['ui.router']);
+ *   </script>
+ * </head>
+ * <body>
+ * </body>
+ * </html>
+ * </pre>
+ */
+angular.module('ui.router', ['ui.router.state']);
+
+angular.module('ui.router.compat', ['ui.router']);
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$resolve
+ *
+ * @requires $q
+ * @requires $injector
+ *
+ * @description
+ * Manages resolution of (acyclic) graphs of promises.
+ */
+$Resolve.$inject = ['$q', '$injector'];
+function $Resolve(  $q,    $injector) {
+  
+  var VISIT_IN_PROGRESS = 1,
+      VISIT_DONE = 2,
+      NOTHING = {},
+      NO_DEPENDENCIES = [],
+      NO_LOCALS = NOTHING,
+      NO_PARENT = extend($q.when(NOTHING), { $$promises: NOTHING, $$values: NOTHING });
+  
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$resolve#study
+   * @methodOf ui.router.util.$resolve
+   *
+   * @description
+   * Studies a set of invocables that are likely to be used multiple times.
+   * <pre>
+   * $resolve.study(invocables)(locals, parent, self)
+   * </pre>
+   * is equivalent to
+   * <pre>
+   * $resolve.resolve(invocables, locals, parent, self)
+   * </pre>
+   * but the former is more efficient (in fact `resolve` just calls `study` 
+   * internally).
+   *
+   * @param {object} invocables Invocable objects
+   * @return {function} a function to pass in locals, parent and self
+   */
+  this.study = function (invocables) {
+    if (!isObject(invocables)) throw new Error("'invocables' must be an object");
+    var invocableKeys = objectKeys(invocables || {});
+    
+    // Perform a topological sort of invocables to build an ordered plan
+    var plan = [], cycle = [], visited = {};
+    function visit(value, key) {
+      if (visited[key] === VISIT_DONE) return;
+      
+      cycle.push(key);
+      if (visited[key] === VISIT_IN_PROGRESS) {
+        cycle.splice(0, indexOf(cycle, key));
+        throw new Error("Cyclic dependency: " + cycle.join(" -> "));
+      }
+      visited[key] = VISIT_IN_PROGRESS;
+      
+      if (isString(value)) {
+        plan.push(key, [ function() { return $injector.get(value); }], NO_DEPENDENCIES);
+      } else {
+        var params = $injector.annotate(value);
+        forEach(params, function (param) {
+          if (param !== key && invocables.hasOwnProperty(param)) visit(invocables[param], param);
+        });
+        plan.push(key, value, params);
+      }
+      
+      cycle.pop();
+      visited[key] = VISIT_DONE;
+    }
+    forEach(invocables, visit);
+    invocables = cycle = visited = null; // plan is all that's required
+    
+    function isResolve(value) {
+      return isObject(value) && value.then && value.$$promises;
+    }
+    
+    return function (locals, parent, self) {
+      if (isResolve(locals) && self === undefined) {
+        self = parent; parent = locals; locals = null;
+      }
+      if (!locals) locals = NO_LOCALS;
+      else if (!isObject(locals)) {
+        throw new Error("'locals' must be an object");
+      }       
+      if (!parent) parent = NO_PARENT;
+      else if (!isResolve(parent)) {
+        throw new Error("'parent' must be a promise returned by $resolve.resolve()");
+      }
+      
+      // To complete the overall resolution, we have to wait for the parent
+      // promise and for the promise for each invokable in our plan.
+      var resolution = $q.defer(),
+          result = resolution.promise,
+          promises = result.$$promises = {},
+          values = extend({}, locals),
+          wait = 1 + plan.length/3,
+          merged = false;
+          
+      function done() {
+        // Merge parent values we haven't got yet and publish our own $$values
+        if (!--wait) {
+          if (!merged) merge(values, parent.$$values); 
+          result.$$values = values;
+          result.$$promises = result.$$promises || true; // keep for isResolve()
+          delete result.$$inheritedValues;
+          resolution.resolve(values);
+        }
+      }
+      
+      function fail(reason) {
+        result.$$failure = reason;
+        resolution.reject(reason);
+      }
+
+      // Short-circuit if parent has already failed
+      if (isDefined(parent.$$failure)) {
+        fail(parent.$$failure);
+        return result;
+      }
+      
+      if (parent.$$inheritedValues) {
+        merge(values, omit(parent.$$inheritedValues, invocableKeys));
+      }
+
+      // Merge parent values if the parent has already resolved, or merge
+      // parent promises and wait if the parent resolve is still in progress.
+      extend(promises, parent.$$promises);
+      if (parent.$$values) {
+        merged = merge(values, omit(parent.$$values, invocableKeys));
+        result.$$inheritedValues = omit(parent.$$values, invocableKeys);
+        done();
+      } else {
+        if (parent.$$inheritedValues) {
+          result.$$inheritedValues = omit(parent.$$inheritedValues, invocableKeys);
+        }        
+        parent.then(done, fail);
+      }
+      
+      // Process each invocable in the plan, but ignore any where a local of the same name exists.
+      for (var i=0, ii=plan.length; i<ii; i+=3) {
+        if (locals.hasOwnProperty(plan[i])) done();
+        else invoke(plan[i], plan[i+1], plan[i+2]);
+      }
+      
+      function invoke(key, invocable, params) {
+        // Create a deferred for this invocation. Failures will propagate to the resolution as well.
+        var invocation = $q.defer(), waitParams = 0;
+        function onfailure(reason) {
+          invocation.reject(reason);
+          fail(reason);
+        }
+        // Wait for any parameter that we have a promise for (either from parent or from this
+        // resolve; in that case study() will have made sure it's ordered before us in the plan).
+        forEach(params, function (dep) {
+          if (promises.hasOwnProperty(dep) && !locals.hasOwnProperty(dep)) {
+            waitParams++;
+            promises[dep].then(function (result) {
+              values[dep] = result;
+              if (!(--waitParams)) proceed();
+            }, onfailure);
+          }
+        });
+        if (!waitParams) proceed();
+        function proceed() {
+          if (isDefined(result.$$failure)) return;
+          try {
+            invocation.resolve($injector.invoke(invocable, self, values));
+            invocation.promise.then(function (result) {
+              values[key] = result;
+              done();
+            }, onfailure);
+          } catch (e) {
+            onfailure(e);
+          }
+        }
+        // Publish promise synchronously; invocations further down in the plan may depend on it.
+        promises[key] = invocation.promise;
+      }
+      
+      return result;
+    };
+  };
+  
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$resolve#resolve
+   * @methodOf ui.router.util.$resolve
+   *
+   * @description
+   * Resolves a set of invocables. An invocable is a function to be invoked via 
+   * `$injector.invoke()`, and can have an arbitrary number of dependencies. 
+   * An invocable can either return a value directly,
+   * or a `$q` promise. If a promise is returned it will be resolved and the 
+   * resulting value will be used instead. Dependencies of invocables are resolved 
+   * (in this order of precedence)
+   *
+   * - from the specified `locals`
+   * - from another invocable that is part of this `$resolve` call
+   * - from an invocable that is inherited from a `parent` call to `$resolve` 
+   *   (or recursively
+   * - from any ancestor `$resolve` of that parent).
+   *
+   * The return value of `$resolve` is a promise for an object that contains 
+   * (in this order of precedence)
+   *
+   * - any `locals` (if specified)
+   * - the resolved return values of all injectables
+   * - any values inherited from a `parent` call to `$resolve` (if specified)
+   *
+   * The promise will resolve after the `parent` promise (if any) and all promises 
+   * returned by injectables have been resolved. If any invocable 
+   * (or `$injector.invoke`) throws an exception, or if a promise returned by an 
+   * invocable is rejected, the `$resolve` promise is immediately rejected with the 
+   * same error. A rejection of a `parent` promise (if specified) will likewise be 
+   * propagated immediately. Once the `$resolve` promise has been rejected, no 
+   * further invocables will be called.
+   * 
+   * Cyclic dependencies between invocables are not permitted and will caues `$resolve`
+   * to throw an error. As a special case, an injectable can depend on a parameter 
+   * with the same name as the injectable, which will be fulfilled from the `parent` 
+   * injectable of the same name. This allows inherited values to be decorated. 
+   * Note that in this case any other injectable in the same `$resolve` with the same
+   * dependency would see the decorated value, not the inherited value.
+   *
+   * Note that missing dependencies -- unlike cyclic dependencies -- will cause an 
+   * (asynchronous) rejection of the `$resolve` promise rather than a (synchronous) 
+   * exception.
+   *
+   * Invocables are invoked eagerly as soon as all dependencies are available. 
+   * This is true even for dependencies inherited from a `parent` call to `$resolve`.
+   *
+   * As a special case, an invocable can be a string, in which case it is taken to 
+   * be a service name to be passed to `$injector.get()`. This is supported primarily 
+   * for backwards-compatibility with the `resolve` property of `$routeProvider` 
+   * routes.
+   *
+   * @param {object} invocables functions to invoke or 
+   * `$injector` services to fetch.
+   * @param {object} locals  values to make available to the injectables
+   * @param {object} parent  a promise returned by another call to `$resolve`.
+   * @param {object} self  the `this` for the invoked methods
+   * @return {object} Promise for an object that contains the resolved return value
+   * of all invocables, as well as any inherited and local values.
+   */
+  this.resolve = function (invocables, locals, parent, self) {
+    return this.study(invocables)(locals, parent, self);
+  };
+}
+
+angular.module('ui.router.util').service('$resolve', $Resolve);
+
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$templateFactory
+ *
+ * @requires $http
+ * @requires $templateCache
+ * @requires $injector
+ *
+ * @description
+ * Service. Manages loading of templates.
+ */
+$TemplateFactory.$inject = ['$http', '$templateCache', '$injector'];
+function $TemplateFactory(  $http,   $templateCache,   $injector) {
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromConfig
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template from a configuration object. 
+   *
+   * @param {object} config Configuration object for which to load a template. 
+   * The following properties are search in the specified order, and the first one 
+   * that is defined is used to create the template:
+   *
+   * @param {string|object} config.template html string template or function to 
+   * load via {@link ui.router.util.$templateFactory#fromString fromString}.
+   * @param {string|object} config.templateUrl url to load or a function returning 
+   * the url to load via {@link ui.router.util.$templateFactory#fromUrl fromUrl}.
+   * @param {Function} config.templateProvider function to invoke via 
+   * {@link ui.router.util.$templateFactory#fromProvider fromProvider}.
+   * @param {object} params  Parameters to pass to the template function.
+   * @param {object} locals Locals to pass to `invoke` if the template is loaded 
+   * via a `templateProvider`. Defaults to `{ params: params }`.
+   *
+   * @return {string|object}  The template html as a string, or a promise for 
+   * that string,or `null` if no template is configured.
+   */
+  this.fromConfig = function (config, params, locals) {
+    return (
+      isDefined(config.template) ? this.fromString(config.template, params) :
+      isDefined(config.templateUrl) ? this.fromUrl(config.templateUrl, params) :
+      isDefined(config.templateProvider) ? this.fromProvider(config.templateProvider, params, locals) :
+      null
+    );
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromString
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template from a string or a function returning a string.
+   *
+   * @param {string|object} template html template as a string or function that 
+   * returns an html template as a string.
+   * @param {object} params Parameters to pass to the template function.
+   *
+   * @return {string|object} The template html as a string, or a promise for that 
+   * string.
+   */
+  this.fromString = function (template, params) {
+    return isFunction(template) ? template(params) : template;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromUrl
+   * @methodOf ui.router.util.$templateFactory
+   * 
+   * @description
+   * Loads a template from the a URL via `$http` and `$templateCache`.
+   *
+   * @param {string|Function} url url of the template to load, or a function 
+   * that returns a url.
+   * @param {Object} params Parameters to pass to the url function.
+   * @return {string|Promise.<string>} The template html as a string, or a promise 
+   * for that string.
+   */
+  this.fromUrl = function (url, params) {
+    if (isFunction(url)) url = url(params);
+    if (url == null) return null;
+    else return $http
+        .get(url, { cache: $templateCache, headers: { Accept: 'text/html' }})
+        .then(function(response) { return response.data; });
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromProvider
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template by invoking an injectable provider function.
+   *
+   * @param {Function} provider Function to invoke via `$injector.invoke`
+   * @param {Object} params Parameters for the template.
+   * @param {Object} locals Locals to pass to `invoke`. Defaults to 
+   * `{ params: params }`.
+   * @return {string|Promise.<string>} The template html as a string, or a promise 
+   * for that string.
+   */
+  this.fromProvider = function (provider, params, locals) {
+    return $injector.invoke(provider, null, locals || { params: params });
+  };
+}
+
+angular.module('ui.router.util').service('$templateFactory', $TemplateFactory);
+
+var $$UMFP; // reference to $UrlMatcherFactoryProvider
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Matches URLs against patterns and extracts named parameters from the path or the search
+ * part of the URL. A URL pattern consists of a path pattern, optionally followed by '?' and a list
+ * of search parameters. Multiple search parameter names are separated by '&'. Search parameters
+ * do not influence whether or not a URL is matched, but their values are passed through into
+ * the matched parameters returned by {@link ui.router.util.type:UrlMatcher#methods_exec exec}.
+ *
+ * Path parameter placeholders can be specified using simple colon/catch-all syntax or curly brace
+ * syntax, which optionally allows a regular expression for the parameter to be specified:
+ *
+ * * `':'` name - colon placeholder
+ * * `'*'` name - catch-all placeholder
+ * * `'{' name '}'` - curly placeholder
+ * * `'{' name ':' regexp|type '}'` - curly placeholder with regexp or type name. Should the
+ *   regexp itself contain curly braces, they must be in matched pairs or escaped with a backslash.
+ *
+ * Parameter names may contain only word characters (latin letters, digits, and underscore) and
+ * must be unique within the pattern (across both path and search parameters). For colon
+ * placeholders or curly placeholders without an explicit regexp, a path parameter matches any
+ * number of characters other than '/'. For catch-all placeholders the path parameter matches
+ * any number of characters.
+ *
+ * Examples:
+ *
+ * * `'/hello/'` - Matches only if the path is exactly '/hello/'. There is no special treatment for
+ *   trailing slashes, and patterns have to match the entire path, not just a prefix.
+ * * `'/user/:id'` - Matches '/user/bob' or '/user/1234!!!' or even '/user/' but not '/user' or
+ *   '/user/bob/details'. The second path segment will be captured as the parameter 'id'.
+ * * `'/user/{id}'` - Same as the previous example, but using curly brace syntax.
+ * * `'/user/{id:[^/]*}'` - Same as the previous example.
+ * * `'/user/{id:[0-9a-fA-F]{1,8}}'` - Similar to the previous example, but only matches if the id
+ *   parameter consists of 1 to 8 hex digits.
+ * * `'/files/{path:.*}'` - Matches any URL starting with '/files/' and captures the rest of the
+ *   path into the parameter 'path'.
+ * * `'/files/*path'` - ditto.
+ * * `'/calendar/{start:date}'` - Matches "/calendar/2014-11-12" (because the pattern defined
+ *   in the built-in  `date` Type matches `2014-11-12`) and provides a Date object in $stateParams.start
+ *
+ * @param {string} pattern  The pattern to compile into a matcher.
+ * @param {Object} config  A configuration object hash:
+ * @param {Object=} parentMatcher Used to concatenate the pattern/config onto
+ *   an existing UrlMatcher
+ *
+ * * `caseInsensitive` - `true` if URL matching should be case insensitive, otherwise `false`, the default value (for backward compatibility) is `false`.
+ * * `strict` - `false` if matching against a URL with a trailing slash should be treated as equivalent to a URL without a trailing slash, the default value is `true`.
+ *
+ * @property {string} prefix  A static prefix of this pattern. The matcher guarantees that any
+ *   URL matching this matcher (i.e. any string for which {@link ui.router.util.type:UrlMatcher#methods_exec exec()} returns
+ *   non-null) will start with this prefix.
+ *
+ * @property {string} source  The pattern that was passed into the constructor
+ *
+ * @property {string} sourcePath  The path portion of the source property
+ *
+ * @property {string} sourceSearch  The search portion of the source property
+ *
+ * @property {string} regex  The constructed regex that will be used to match against the url when
+ *   it is time to determine which url will match.
+ *
+ * @returns {Object}  New `UrlMatcher` object
+ */
+function UrlMatcher(pattern, config, parentMatcher) {
+  config = extend({ params: {} }, isObject(config) ? config : {});
+
+  // Find all placeholders and create a compiled pattern, using either classic or curly syntax:
+  //   '*' name
+  //   ':' name
+  //   '{' name '}'
+  //   '{' name ':' regexp '}'
+  // The regular expression is somewhat complicated due to the need to allow curly braces
+  // inside the regular expression. The placeholder regexp breaks down as follows:
+  //    ([:*])([\w\[\]]+)              - classic placeholder ($1 / $2) (search version has - for snake-case)
+  //    \{([\w\[\]]+)(?:\:( ... ))?\}  - curly brace placeholder ($3) with optional regexp/type ... ($4) (search version has - for snake-case
+  //    (?: ... | ... | ... )+         - the regexp consists of any number of atoms, an atom being either
+  //    [^{}\\]+                       - anything other than curly braces or backslash
+  //    \\.                            - a backslash escape
+  //    \{(?:[^{}\\]+|\\.)*\}          - a matched set of curly braces containing other atoms
+  var placeholder       = /([:*])([\w\[\]]+)|\{([\w\[\]]+)(?:\:((?:[^{}\\]+|\\.|\{(?:[^{}\\]+|\\.)*\})+))?\}/g,
+      searchPlaceholder = /([:]?)([\w\[\]-]+)|\{([\w\[\]-]+)(?:\:((?:[^{}\\]+|\\.|\{(?:[^{}\\]+|\\.)*\})+))?\}/g,
+      compiled = '^', last = 0, m,
+      segments = this.segments = [],
+      parentParams = parentMatcher ? parentMatcher.params : {},
+      params = this.params = parentMatcher ? parentMatcher.params.$$new() : new $$UMFP.ParamSet(),
+      paramNames = [];
+
+  function addParameter(id, type, config, location) {
+    paramNames.push(id);
+    if (parentParams[id]) return parentParams[id];
+    if (!/^\w+(-+\w+)*(?:\[\])?$/.test(id)) throw new Error("Invalid parameter name '" + id + "' in pattern '" + pattern + "'");
+    if (params[id]) throw new Error("Duplicate parameter name '" + id + "' in pattern '" + pattern + "'");
+    params[id] = new $$UMFP.Param(id, type, config, location);
+    return params[id];
+  }
+
+  function quoteRegExp(string, pattern, squash, optional) {
+    var surroundPattern = ['',''], result = string.replace(/[\\\[\]\^$*+?.()|{}]/g, "\\$&");
+    if (!pattern) return result;
+    switch(squash) {
+      case false: surroundPattern = ['(', ')' + (optional ? "?" : "")]; break;
+      case true:  surroundPattern = ['?(', ')?']; break;
+      default:    surroundPattern = ['(' + squash + "|", ')?']; break;
+    }
+    return result + surroundPattern[0] + pattern + surroundPattern[1];
+  }
+
+  this.source = pattern;
+
+  // Split into static segments separated by path parameter placeholders.
+  // The number of segments is always 1 more than the number of parameters.
+  function matchDetails(m, isSearch) {
+    var id, regexp, segment, type, cfg, arrayMode;
+    id          = m[2] || m[3]; // IE[78] returns '' for unmatched groups instead of null
+    cfg         = config.params[id];
+    segment     = pattern.substring(last, m.index);
+    regexp      = isSearch ? m[4] : m[4] || (m[1] == '*' ? '.*' : null);
+    type        = $$UMFP.type(regexp || "string") || inherit($$UMFP.type("string"), { pattern: new RegExp(regexp, config.caseInsensitive ? 'i' : undefined) });
+    return {
+      id: id, regexp: regexp, segment: segment, type: type, cfg: cfg
+    };
+  }
+
+  var p, param, segment;
+  while ((m = placeholder.exec(pattern))) {
+    p = matchDetails(m, false);
+    if (p.segment.indexOf('?') >= 0) break; // we're into the search part
+
+    param = addParameter(p.id, p.type, p.cfg, "path");
+    compiled += quoteRegExp(p.segment, param.type.pattern.source, param.squash, param.isOptional);
+    segments.push(p.segment);
+    last = placeholder.lastIndex;
+  }
+  segment = pattern.substring(last);
+
+  // Find any search parameter names and remove them from the last segment
+  var i = segment.indexOf('?');
+
+  if (i >= 0) {
+    var search = this.sourceSearch = segment.substring(i);
+    segment = segment.substring(0, i);
+    this.sourcePath = pattern.substring(0, last + i);
+
+    if (search.length > 0) {
+      last = 0;
+      while ((m = searchPlaceholder.exec(search))) {
+        p = matchDetails(m, true);
+        param = addParameter(p.id, p.type, p.cfg, "search");
+        last = placeholder.lastIndex;
+        // check if ?&
+      }
+    }
+  } else {
+    this.sourcePath = pattern;
+    this.sourceSearch = '';
+  }
+
+  compiled += quoteRegExp(segment) + (config.strict === false ? '\/?' : '') + '$';
+  segments.push(segment);
+
+  this.regexp = new RegExp(compiled, config.caseInsensitive ? 'i' : undefined);
+  this.prefix = segments[0];
+  this.$$paramNames = paramNames;
+}
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#concat
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Returns a new matcher for a pattern constructed by appending the path part and adding the
+ * search parameters of the specified pattern to this pattern. The current pattern is not
+ * modified. This can be understood as creating a pattern for URLs that are relative to (or
+ * suffixes of) the current pattern.
+ *
+ * @example
+ * The following two matchers are equivalent:
+ * <pre>
+ * new UrlMatcher('/user/{id}?q').concat('/details?date');
+ * new UrlMatcher('/user/{id}/details?q&date');
+ * </pre>
+ *
+ * @param {string} pattern  The pattern to append.
+ * @param {Object} config  An object hash of the configuration for the matcher.
+ * @returns {UrlMatcher}  A matcher for the concatenated pattern.
+ */
+UrlMatcher.prototype.concat = function (pattern, config) {
+  // Because order of search parameters is irrelevant, we can add our own search
+  // parameters to the end of the new pattern. Parse the new pattern by itself
+  // and then join the bits together, but it's much easier to do this on a string level.
+  var defaultConfig = {
+    caseInsensitive: $$UMFP.caseInsensitive(),
+    strict: $$UMFP.strictMode(),
+    squash: $$UMFP.defaultSquashPolicy()
+  };
+  return new UrlMatcher(this.sourcePath + pattern + this.sourceSearch, extend(defaultConfig, config), this);
+};
+
+UrlMatcher.prototype.toString = function () {
+  return this.source;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#exec
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Tests the specified path against this matcher, and returns an object containing the captured
+ * parameter values, or null if the path does not match. The returned object contains the values
+ * of any search parameters that are mentioned in the pattern, but their value may be null if
+ * they are not present in `searchParams`. This means that search parameters are always treated
+ * as optional.
+ *
+ * @example
+ * <pre>
+ * new UrlMatcher('/user/{id}?q&r').exec('/user/bob', {
+ *   x: '1', q: 'hello'
+ * });
+ * // returns { id: 'bob', q: 'hello', r: null }
+ * </pre>
+ *
+ * @param {string} path  The URL path to match, e.g. `$location.path()`.
+ * @param {Object} searchParams  URL search parameters, e.g. `$location.search()`.
+ * @returns {Object}  The captured parameter values.
+ */
+UrlMatcher.prototype.exec = function (path, searchParams) {
+  var m = this.regexp.exec(path);
+  if (!m) return null;
+  searchParams = searchParams || {};
+
+  var paramNames = this.parameters(), nTotal = paramNames.length,
+    nPath = this.segments.length - 1,
+    values = {}, i, j, cfg, paramName;
+
+  if (nPath !== m.length - 1) throw new Error("Unbalanced capture group in route '" + this.source + "'");
+
+  function decodePathArray(string) {
+    function reverseString(str) { return str.split("").reverse().join(""); }
+    function unquoteDashes(str) { return str.replace(/\\-/g, "-"); }
+
+    var split = reverseString(string).split(/-(?!\\)/);
+    var allReversed = map(split, reverseString);
+    return map(allReversed, unquoteDashes).reverse();
+  }
+
+  for (i = 0; i < nPath; i++) {
+    paramName = paramNames[i];
+    var param = this.params[paramName];
+    var paramVal = m[i+1];
+    // if the param value matches a pre-replace pair, replace the value before decoding.
+    for (j = 0; j < param.replace; j++) {
+      if (param.replace[j].from === paramVal) paramVal = param.replace[j].to;
+    }
+    if (paramVal && param.array === true) paramVal = decodePathArray(paramVal);
+    values[paramName] = param.value(paramVal);
+  }
+  for (/**/; i < nTotal; i++) {
+    paramName = paramNames[i];
+    values[paramName] = this.params[paramName].value(searchParams[paramName]);
+  }
+
+  return values;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#parameters
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Returns the names of all path and search parameters of this pattern in an unspecified order.
+ *
+ * @returns {Array.<string>}  An array of parameter names. Must be treated as read-only. If the
+ *    pattern has no parameters, an empty array is returned.
+ */
+UrlMatcher.prototype.parameters = function (param) {
+  if (!isDefined(param)) return this.$$paramNames;
+  return this.params[param] || null;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#validate
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Checks an object hash of parameters to validate their correctness according to the parameter
+ * types of this `UrlMatcher`.
+ *
+ * @param {Object} params The object hash of parameters to validate.
+ * @returns {boolean} Returns `true` if `params` validates, otherwise `false`.
+ */
+UrlMatcher.prototype.validates = function (params) {
+  return this.params.$$validates(params);
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#format
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Creates a URL that matches this pattern by substituting the specified values
+ * for the path and search parameters. Null values for path parameters are
+ * treated as empty strings.
+ *
+ * @example
+ * <pre>
+ * new UrlMatcher('/user/{id}?q').format({ id:'bob', q:'yes' });
+ * // returns '/user/bob?q=yes'
+ * </pre>
+ *
+ * @param {Object} values  the values to substitute for the parameters in this pattern.
+ * @returns {string}  the formatted URL (path and optionally search part).
+ */
+UrlMatcher.prototype.format = function (values) {
+  values = values || {};
+  var segments = this.segments, params = this.parameters(), paramset = this.params;
+  if (!this.validates(values)) return null;
+
+  var i, search = false, nPath = segments.length - 1, nTotal = params.length, result = segments[0];
+
+  function encodeDashes(str) { // Replace dashes with encoded "\-"
+    return encodeURIComponent(str).replace(/-/g, function(c) { return '%5C%' + c.charCodeAt(0).toString(16).toUpperCase(); });
+  }
+
+  for (i = 0; i < nTotal; i++) {
+    var isPathParam = i < nPath;
+    var name = params[i], param = paramset[name], value = param.value(values[name]);
+    var isDefaultValue = param.isOptional && param.type.equals(param.value(), value);
+    var squash = isDefaultValue ? param.squash : false;
+    var encoded = param.type.encode(value);
+
+    if (isPathParam) {
+      var nextSegment = segments[i + 1];
+      if (squash === false) {
+        if (encoded != null) {
+          if (isArray(encoded)) {
+            result += map(encoded, encodeDashes).join("-");
+          } else {
+            result += encodeURIComponent(encoded);
+          }
+        }
+        result += nextSegment;
+      } else if (squash === true) {
+        var capture = result.match(/\/$/) ? /\/?(.*)/ : /(.*)/;
+        result += nextSegment.match(capture)[1];
+      } else if (isString(squash)) {
+        result += squash + nextSegment;
+      }
+    } else {
+      if (encoded == null || (isDefaultValue && squash !== false)) continue;
+      if (!isArray(encoded)) encoded = [ encoded ];
+      encoded = map(encoded, encodeURIComponent).join('&' + name + '=');
+      result += (search ? '&' : '?') + (name + '=' + encoded);
+      search = true;
+    }
+  }
+
+  return result;
+};
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.type:Type
+ *
+ * @description
+ * Implements an interface to define custom parameter types that can be decoded from and encoded to
+ * string parameters matched in a URL. Used by {@link ui.router.util.type:UrlMatcher `UrlMatcher`}
+ * objects when matching or formatting URLs, or comparing or validating parameter values.
+ *
+ * See {@link ui.router.util.$urlMatcherFactory#methods_type `$urlMatcherFactory#type()`} for more
+ * information on registering custom types.
+ *
+ * @param {Object} config  A configuration object which contains the custom type definition.  The object's
+ *        properties will override the default methods and/or pattern in `Type`'s public interface.
+ * @example
+ * <pre>
+ * {
+ *   decode: function(val) { return parseInt(val, 10); },
+ *   encode: function(val) { return val && val.toString(); },
+ *   equals: function(a, b) { return this.is(a) && a === b; },
+ *   is: function(val) { return angular.isNumber(val) isFinite(val) && val % 1 === 0; },
+ *   pattern: /\d+/
+ * }
+ * </pre>
+ *
+ * @property {RegExp} pattern The regular expression pattern used to match values of this type when
+ *           coming from a substring of a URL.
+ *
+ * @returns {Object}  Returns a new `Type` object.
+ */
+function Type(config) {
+  extend(this, config);
+}
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:Type#is
+ * @methodOf ui.router.util.type:Type
+ *
+ * @description
+ * Detects whether a value is of a particular type. Accepts a native (decoded) value
+ * and determines whether it matches the current `Type` object.
+ *
+ * @param {*} val  The value to check.
+ * @param {string} key  Optional. If the type check is happening in the context of a specific
+ *        {@link ui.router.util.type:UrlMatcher `UrlMatcher`} object, this is the name of the
+ *        parameter in which `val` is stored. Can be used for meta-programming of `Type` objects.
+ * @returns {Boolean}  Returns `true` if the value matches the type, otherwise `false`.
+ */
+Type.prototype.is = function(val, key) {
+  return true;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:Type#encode
+ * @methodOf ui.router.util.type:Type
+ *
+ * @description
+ * Encodes a custom/native type value to a string that can be embedded in a URL. Note that the
+ * return value does *not* need to be URL-safe (i.e. passed through `encodeURIComponent()`), it
+ * only needs to be a representation of `val` that has been coerced to a string.
+ *
+ * @param {*} val  The value to encode.
+ * @param {string} key  The name of the parameter in which `val` is stored. Can be used for
+ *        meta-programming of `Type` objects.
+ * @returns {string}  Returns a string representation of `val` that can be encoded in a URL.
+ */
+Type.prototype.encode = function(val, key) {
+  return val;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:Type#decode
+ * @methodOf ui.router.util.type:Type
+ *
+ * @description
+ * Converts a parameter value (from URL string or transition param) to a custom/native value.
+ *
+ * @param {string} val  The URL parameter value to decode.
+ * @param {string} key  The name of the parameter in which `val` is stored. Can be used for
+ *        meta-programming of `Type` objects.
+ * @returns {*}  Returns a custom representation of the URL parameter value.
+ */
+Type.prototype.decode = function(val, key) {
+  return val;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:Type#equals
+ * @methodOf ui.router.util.type:Type
+ *
+ * @description
+ * Determines whether two decoded values are equivalent.
+ *
+ * @param {*} a  A value to compare against.
+ * @param {*} b  A value to compare against.
+ * @returns {Boolean}  Returns `true` if the values are equivalent/equal, otherwise `false`.
+ */
+Type.prototype.equals = function(a, b) {
+  return a == b;
+};
+
+Type.prototype.$subPattern = function() {
+  var sub = this.pattern.toString();
+  return sub.substr(1, sub.length - 2);
+};
+
+Type.prototype.pattern = /.*/;
+
+Type.prototype.toString = function() { return "{Type:" + this.name + "}"; };
+
+/** Given an encoded string, or a decoded object, returns a decoded object */
+Type.prototype.$normalize = function(val) {
+  return this.is(val) ? val : this.decode(val);
+};
+
+/*
+ * Wraps an existing custom Type as an array of Type, depending on 'mode'.
+ * e.g.:
+ * - urlmatcher pattern "/path?{queryParam[]:int}"
+ * - url: "/path?queryParam=1&queryParam=2
+ * - $stateParams.queryParam will be [1, 2]
+ * if `mode` is "auto", then
+ * - url: "/path?queryParam=1 will create $stateParams.queryParam: 1
+ * - url: "/path?queryParam=1&queryParam=2 will create $stateParams.queryParam: [1, 2]
+ */
+Type.prototype.$asArray = function(mode, isSearch) {
+  if (!mode) return this;
+  if (mode === "auto" && !isSearch) throw new Error("'auto' array mode is for query parameters only");
+
+  function ArrayType(type, mode) {
+    function bindTo(type, callbackName) {
+      return function() {
+        return type[callbackName].apply(type, arguments);
+      };
+    }
+
+    // Wrap non-array value as array
+    function arrayWrap(val) { return isArray(val) ? val : (isDefined(val) ? [ val ] : []); }
+    // Unwrap array value for "auto" mode. Return undefined for empty array.
+    function arrayUnwrap(val) {
+      switch(val.length) {
+        case 0: return undefined;
+        case 1: return mode === "auto" ? val[0] : val;
+        default: return val;
+      }
+    }
+    function falsey(val) { return !val; }
+
+    // Wraps type (.is/.encode/.decode) functions to operate on each value of an array
+    function arrayHandler(callback, allTruthyMode) {
+      return function handleArray(val) {
+        val = arrayWrap(val);
+        var result = map(val, callback);
+        if (allTruthyMode === true)
+          return filter(result, falsey).length === 0;
+        return arrayUnwrap(result);
+      };
+    }
+
+    // Wraps type (.equals) functions to operate on each value of an array
+    function arrayEqualsHandler(callback) {
+      return function handleArray(val1, val2) {
+        var left = arrayWrap(val1), right = arrayWrap(val2);
+        if (left.length !== right.length) return false;
+        for (var i = 0; i < left.length; i++) {
+          if (!callback(left[i], right[i])) return false;
+        }
+        return true;
+      };
+    }
+
+    this.encode = arrayHandler(bindTo(type, 'encode'));
+    this.decode = arrayHandler(bindTo(type, 'decode'));
+    this.is     = arrayHandler(bindTo(type, 'is'), true);
+    this.equals = arrayEqualsHandler(bindTo(type, 'equals'));
+    this.pattern = type.pattern;
+    this.$normalize = arrayHandler(bindTo(type, '$normalize'));
+    this.name = type.name;
+    this.$arrayMode = mode;
+  }
+
+  return new ArrayType(this, mode);
+};
+
+
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$urlMatcherFactory
+ *
+ * @description
+ * Factory for {@link ui.router.util.type:UrlMatcher `UrlMatcher`} instances. The factory
+ * is also available to providers under the name `$urlMatcherFactoryProvider`.
+ */
+function $UrlMatcherFactory() {
+  $$UMFP = this;
+
+  var isCaseInsensitive = false, isStrictMode = true, defaultSquashPolicy = false;
+
+  function valToString(val) { return val != null ? val.toString().replace(/\//g, "%2F") : val; }
+  function valFromString(val) { return val != null ? val.toString().replace(/%2F/g, "/") : val; }
+
+  var $types = {}, enqueue = true, typeQueue = [], injector, defaultTypes = {
+    string: {
+      encode: valToString,
+      decode: valFromString,
+      // TODO: in 1.0, make string .is() return false if value is undefined/null by default.
+      // In 0.2.x, string params are optional by default for backwards compat
+      is: function(val) { return val == null || !isDefined(val) || typeof val === "string"; },
+      pattern: /[^/]*/
+    },
+    int: {
+      encode: valToString,
+      decode: function(val) { return parseInt(val, 10); },
+      is: function(val) { return isDefined(val) && this.decode(val.toString()) === val; },
+      pattern: /\d+/
+    },
+    bool: {
+      encode: function(val) { return val ? 1 : 0; },
+      decode: function(val) { return parseInt(val, 10) !== 0; },
+      is: function(val) { return val === true || val === false; },
+      pattern: /0|1/
+    },
+    date: {
+      encode: function (val) {
+        if (!this.is(val))
+          return undefined;
+        return [ val.getFullYear(),
+          ('0' + (val.getMonth() + 1)).slice(-2),
+          ('0' + val.getDate()).slice(-2)
+        ].join("-");
+      },
+      decode: function (val) {
+        if (this.is(val)) return val;
+        var match = this.capture.exec(val);
+        return match ? new Date(match[1], match[2] - 1, match[3]) : undefined;
+      },
+      is: function(val) { return val instanceof Date && !isNaN(val.valueOf()); },
+      equals: function (a, b) { return this.is(a) && this.is(b) && a.toISOString() === b.toISOString(); },
+      pattern: /[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[1-2][0-9]|3[0-1])/,
+      capture: /([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1])/
+    },
+    json: {
+      encode: angular.toJson,
+      decode: angular.fromJson,
+      is: angular.isObject,
+      equals: angular.equals,
+      pattern: /[^/]*/
+    },
+    any: { // does not encode/decode
+      encode: angular.identity,
+      decode: angular.identity,
+      equals: angular.equals,
+      pattern: /.*/
+    }
+  };
+
+  function getDefaultConfig() {
+    return {
+      strict: isStrictMode,
+      caseInsensitive: isCaseInsensitive
+    };
+  }
+
+  function isInjectable(value) {
+    return (isFunction(value) || (isArray(value) && isFunction(value[value.length - 1])));
+  }
+
+  /**
+   * [Internal] Get the default value of a parameter, which may be an injectable function.
+   */
+  $UrlMatcherFactory.$$getDefaultValue = function(config) {
+    if (!isInjectable(config.value)) return config.value;
+    if (!injector) throw new Error("Injectable functions cannot be called at configuration time");
+    return injector.invoke(config.value);
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#caseInsensitive
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Defines whether URL matching should be case sensitive (the default behavior), or not.
+   *
+   * @param {boolean} value `false` to match URL in a case sensitive manner; otherwise `true`;
+   * @returns {boolean} the current value of caseInsensitive
+   */
+  this.caseInsensitive = function(value) {
+    if (isDefined(value))
+      isCaseInsensitive = value;
+    return isCaseInsensitive;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#strictMode
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Defines whether URLs should match trailing slashes, or not (the default behavior).
+   *
+   * @param {boolean=} value `false` to match trailing slashes in URLs, otherwise `true`.
+   * @returns {boolean} the current value of strictMode
+   */
+  this.strictMode = function(value) {
+    if (isDefined(value))
+      isStrictMode = value;
+    return isStrictMode;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#defaultSquashPolicy
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Sets the default behavior when generating or matching URLs with default parameter values.
+   *
+   * @param {string} value A string that defines the default parameter URL squashing behavior.
+   *    `nosquash`: When generating an href with a default parameter value, do not squash the parameter value from the URL
+   *    `slash`: When generating an href with a default parameter value, squash (remove) the parameter value, and, if the
+   *             parameter is surrounded by slashes, squash (remove) one slash from the URL
+   *    any other string, e.g. "~": When generating an href with a default parameter value, squash (remove)
+   *             the parameter value from the URL and replace it with this string.
+   */
+  this.defaultSquashPolicy = function(value) {
+    if (!isDefined(value)) return defaultSquashPolicy;
+    if (value !== true && value !== false && !isString(value))
+      throw new Error("Invalid squash policy: " + value + ". Valid policies: false, true, arbitrary-string");
+    defaultSquashPolicy = value;
+    return value;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#compile
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Creates a {@link ui.router.util.type:UrlMatcher `UrlMatcher`} for the specified pattern.
+   *
+   * @param {string} pattern  The URL pattern.
+   * @param {Object} config  The config object hash.
+   * @returns {UrlMatcher}  The UrlMatcher.
+   */
+  this.compile = function (pattern, config) {
+    return new UrlMatcher(pattern, extend(getDefaultConfig(), config));
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#isMatcher
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Returns true if the specified object is a `UrlMatcher`, or false otherwise.
+   *
+   * @param {Object} object  The object to perform the type check against.
+   * @returns {Boolean}  Returns `true` if the object matches the `UrlMatcher` interface, by
+   *          implementing all the same methods.
+   */
+  this.isMatcher = function (o) {
+    if (!isObject(o)) return false;
+    var result = true;
+
+    forEach(UrlMatcher.prototype, function(val, name) {
+      if (isFunction(val)) {
+        result = result && (isDefined(o[name]) && isFunction(o[name]));
+      }
+    });
+    return result;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#type
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Registers a custom {@link ui.router.util.type:Type `Type`} object that can be used to
+   * generate URLs with typed parameters.
+   *
+   * @param {string} name  The type name.
+   * @param {Object|Function} definition   The type definition. See
+   *        {@link ui.router.util.type:Type `Type`} for information on the values accepted.
+   * @param {Object|Function} definitionFn (optional) A function that is injected before the app
+   *        runtime starts.  The result of this function is merged into the existing `definition`.
+   *        See {@link ui.router.util.type:Type `Type`} for information on the values accepted.
+   *
+   * @returns {Object}  Returns `$urlMatcherFactoryProvider`.
+   *
+   * @example
+   * This is a simple example of a custom type that encodes and decodes items from an
+   * array, using the array index as the URL-encoded value:
+   *
+   * <pre>
+   * var list = ['John', 'Paul', 'George', 'Ringo'];
+   *
+   * $urlMatcherFactoryProvider.type('listItem', {
+   *   encode: function(item) {
+   *     // Represent the list item in the URL using its corresponding index
+   *     return list.indexOf(item);
+   *   },
+   *   decode: function(item) {
+   *     // Look up the list item by index
+   *     return list[parseInt(item, 10)];
+   *   },
+   *   is: function(item) {
+   *     // Ensure the item is valid by checking to see that it appears
+   *     // in the list
+   *     return list.indexOf(item) > -1;
+   *   }
+   * });
+   *
+   * $stateProvider.state('list', {
+   *   url: "/list/{item:listItem}",
+   *   controller: function($scope, $stateParams) {
+   *     console.log($stateParams.item);
+   *   }
+   * });
+   *
+   * // ...
+   *
+   * // Changes URL to '/list/3', logs "Ringo" to the console
+   * $state.go('list', { item: "Ringo" });
+   * </pre>
+   *
+   * This is a more complex example of a type that relies on dependency injection to
+   * interact with services, and uses the parameter name from the URL to infer how to
+   * handle encoding and decoding parameter values:
+   *
+   * <pre>
+   * // Defines a custom type that gets a value from a service,
+   * // where each service gets different types of values from
+   * // a backend API:
+   * $urlMatcherFactoryProvider.type('dbObject', {}, function(Users, Posts) {
+   *
+   *   // Matches up services to URL parameter names
+   *   var services = {
+   *     user: Users,
+   *     post: Posts
+   *   };
+   *
+   *   return {
+   *     encode: function(object) {
+   *       // Represent the object in the URL using its unique ID
+   *       return object.id;
+   *     },
+   *     decode: function(value, key) {
+   *       // Look up the object by ID, using the parameter
+   *       // name (key) to call the correct service
+   *       return services[key].findById(value);
+   *     },
+   *     is: function(object, key) {
+   *       // Check that object is a valid dbObject
+   *       return angular.isObject(object) && object.id && services[key];
+   *     }
+   *     equals: function(a, b) {
+   *       // Check the equality of decoded objects by comparing
+   *       // their unique IDs
+   *       return a.id === b.id;
+   *     }
+   *   };
+   * });
+   *
+   * // In a config() block, you can then attach URLs with
+   * // type-annotated parameters:
+   * $stateProvider.state('users', {
+   *   url: "/users",
+   *   // ...
+   * }).state('users.item', {
+   *   url: "/{user:dbObject}",
+   *   controller: function($scope, $stateParams) {
+   *     // $stateParams.user will now be an object returned from
+   *     // the Users service
+   *   },
+   *   // ...
+   * });
+   * </pre>
+   */
+  this.type = function (name, definition, definitionFn) {
+    if (!isDefined(definition)) return $types[name];
+    if ($types.hasOwnProperty(name)) throw new Error("A type named '" + name + "' has already been defined.");
+
+    $types[name] = new Type(extend({ name: name }, definition));
+    if (definitionFn) {
+      typeQueue.push({ name: name, def: definitionFn });
+      if (!enqueue) flushTypeQueue();
+    }
+    return this;
+  };
+
+  // `flushTypeQueue()` waits until `$urlMatcherFactory` is injected before invoking the queued `definitionFn`s
+  function flushTypeQueue() {
+    while(typeQueue.length) {
+      var type = typeQueue.shift();
+      if (type.pattern) throw new Error("You cannot override a type's .pattern at runtime.");
+      angular.extend($types[type.name], injector.invoke(type.def));
+    }
+  }
+
+  // Register default types. Store them in the prototype of $types.
+  forEach(defaultTypes, function(type, name) { $types[name] = new Type(extend({name: name}, type)); });
+  $types = inherit($types, {});
+
+  /* No need to document $get, since it returns this */
+  this.$get = ['$injector', function ($injector) {
+    injector = $injector;
+    enqueue = false;
+    flushTypeQueue();
+
+    forEach(defaultTypes, function(type, name) {
+      if (!$types[name]) $types[name] = new Type(type);
+    });
+    return this;
+  }];
+
+  this.Param = function Param(id, type, config, location) {
+    var self = this;
+    config = unwrapShorthand(config);
+    type = getType(config, type, location);
+    var arrayMode = getArrayMode();
+    type = arrayMode ? type.$asArray(arrayMode, location === "search") : type;
+    if (type.name === "string" && !arrayMode && location === "path" && config.value === undefined)
+      config.value = ""; // for 0.2.x; in 0.3.0+ do not automatically default to ""
+    var isOptional = config.value !== undefined;
+    var squash = getSquashPolicy(config, isOptional);
+    var replace = getReplace(config, arrayMode, isOptional, squash);
+
+    function unwrapShorthand(config) {
+      var keys = isObject(config) ? objectKeys(config) : [];
+      var isShorthand = indexOf(keys, "value") === -1 && indexOf(keys, "type") === -1 &&
+                        indexOf(keys, "squash") === -1 && indexOf(keys, "array") === -1;
+      if (isShorthand) config = { value: config };
+      config.$$fn = isInjectable(config.value) ? config.value : function () { return config.value; };
+      return config;
+    }
+
+    function getType(config, urlType, location) {
+      if (config.type && urlType) throw new Error("Param '"+id+"' has two type configurations.");
+      if (urlType) return urlType;
+      if (!config.type) return (location === "config" ? $types.any : $types.string);
+      return config.type instanceof Type ? config.type : new Type(config.type);
+    }
+
+    // array config: param name (param[]) overrides default settings.  explicit config overrides param name.
+    function getArrayMode() {
+      var arrayDefaults = { array: (location === "search" ? "auto" : false) };
+      var arrayParamNomenclature = id.match(/\[\]$/) ? { array: true } : {};
+      return extend(arrayDefaults, arrayParamNomenclature, config).array;
+    }
+
+    /**
+     * returns false, true, or the squash value to indicate the "default parameter url squash policy".
+     */
+    function getSquashPolicy(config, isOptional) {
+      var squash = config.squash;
+      if (!isOptional || squash === false) return false;
+      if (!isDefined(squash) || squash == null) return defaultSquashPolicy;
+      if (squash === true || isString(squash)) return squash;
+      throw new Error("Invalid squash policy: '" + squash + "'. Valid policies: false, true, or arbitrary string");
+    }
+
+    function getReplace(config, arrayMode, isOptional, squash) {
+      var replace, configuredKeys, defaultPolicy = [
+        { from: "",   to: (isOptional || arrayMode ? undefined : "") },
+        { from: null, to: (isOptional || arrayMode ? undefined : "") }
+      ];
+      replace = isArray(config.replace) ? config.replace : [];
+      if (isString(squash))
+        replace.push({ from: squash, to: undefined });
+      configuredKeys = map(replace, function(item) { return item.from; } );
+      return filter(defaultPolicy, function(item) { return indexOf(configuredKeys, item.from) === -1; }).concat(replace);
+    }
+
+    /**
+     * [Internal] Get the default value of a parameter, which may be an injectable function.
+     */
+    function $$getDefaultValue() {
+      if (!injector) throw new Error("Injectable functions cannot be called at configuration time");
+      var defaultValue = injector.invoke(config.$$fn);
+      if (defaultValue !== null && defaultValue !== undefined && !self.type.is(defaultValue))
+        throw new Error("Default value (" + defaultValue + ") for parameter '" + self.id + "' is not an instance of Type (" + self.type.name + ")");
+      return defaultValue;
+    }
+
+    /**
+     * [Internal] Gets the decoded representation of a value if the value is defined, otherwise, returns the
+     * default value, which may be the result of an injectable function.
+     */
+    function $value(value) {
+      function hasReplaceVal(val) { return function(obj) { return obj.from === val; }; }
+      function $replace(value) {
+        var replacement = map(filter(self.replace, hasReplaceVal(value)), function(obj) { return obj.to; });
+        return replacement.length ? replacement[0] : value;
+      }
+      value = $replace(value);
+      return !isDefined(value) ? $$getDefaultValue() : self.type.$normalize(value);
+    }
+
+    function toString() { return "{Param:" + id + " " + type + " squash: '" + squash + "' optional: " + isOptional + "}"; }
+
+    extend(this, {
+      id: id,
+      type: type,
+      location: location,
+      array: arrayMode,
+      squash: squash,
+      replace: replace,
+      isOptional: isOptional,
+      value: $value,
+      dynamic: undefined,
+      config: config,
+      toString: toString
+    });
+  };
+
+  function ParamSet(params) {
+    extend(this, params || {});
+  }
+
+  ParamSet.prototype = {
+    $$new: function() {
+      return inherit(this, extend(new ParamSet(), { $$parent: this}));
+    },
+    $$keys: function () {
+      var keys = [], chain = [], parent = this,
+        ignore = objectKeys(ParamSet.prototype);
+      while (parent) { chain.push(parent); parent = parent.$$parent; }
+      chain.reverse();
+      forEach(chain, function(paramset) {
+        forEach(objectKeys(paramset), function(key) {
+            if (indexOf(keys, key) === -1 && indexOf(ignore, key) === -1) keys.push(key);
+        });
+      });
+      return keys;
+    },
+    $$values: function(paramValues) {
+      var values = {}, self = this;
+      forEach(self.$$keys(), function(key) {
+        values[key] = self[key].value(paramValues && paramValues[key]);
+      });
+      return values;
+    },
+    $$equals: function(paramValues1, paramValues2) {
+      var equal = true, self = this;
+      forEach(self.$$keys(), function(key) {
+        var left = paramValues1 && paramValues1[key], right = paramValues2 && paramValues2[key];
+        if (!self[key].type.equals(left, right)) equal = false;
+      });
+      return equal;
+    },
+    $$validates: function $$validate(paramValues) {
+      var keys = this.$$keys(), i, param, rawVal, normalized, encoded;
+      for (i = 0; i < keys.length; i++) {
+        param = this[keys[i]];
+        rawVal = paramValues[keys[i]];
+        if ((rawVal === undefined || rawVal === null) && param.isOptional)
+          break; // There was no parameter value, but the param is optional
+        normalized = param.type.$normalize(rawVal);
+        if (!param.type.is(normalized))
+          return false; // The value was not of the correct Type, and could not be decoded to the correct Type
+        encoded = param.type.encode(normalized);
+        if (angular.isString(encoded) && !param.type.pattern.exec(encoded))
+          return false; // The value was of the correct type, but when encoded, did not match the Type's regexp
+      }
+      return true;
+    },
+    $$parent: undefined
+  };
+
+  this.ParamSet = ParamSet;
+}
+
+// Register as a provider so it's available to other providers
+angular.module('ui.router.util').provider('$urlMatcherFactory', $UrlMatcherFactory);
+angular.module('ui.router.util').run(['$urlMatcherFactory', function($urlMatcherFactory) { }]);
+
+/**
+ * @ngdoc object
+ * @name ui.router.router.$urlRouterProvider
+ *
+ * @requires ui.router.util.$urlMatcherFactoryProvider
+ * @requires $locationProvider
+ *
+ * @description
+ * `$urlRouterProvider` has the responsibility of watching `$location`. 
+ * When `$location` changes it runs through a list of rules one by one until a 
+ * match is found. `$urlRouterProvider` is used behind the scenes anytime you specify 
+ * a url in a state configuration. All urls are compiled into a UrlMatcher object.
+ *
+ * There are several methods on `$urlRouterProvider` that make it useful to use directly
+ * in your module config.
+ */
+$UrlRouterProvider.$inject = ['$locationProvider', '$urlMatcherFactoryProvider'];
+function $UrlRouterProvider(   $locationProvider,   $urlMatcherFactory) {
+  var rules = [], otherwise = null, interceptDeferred = false, listener;
+
+  // Returns a string that is a prefix of all strings matching the RegExp
+  function regExpPrefix(re) {
+    var prefix = /^\^((?:\\[^a-zA-Z0-9]|[^\\\[\]\^$*+?.()|{}]+)*)/.exec(re.source);
+    return (prefix != null) ? prefix[1].replace(/\\(.)/g, "$1") : '';
+  }
+
+  // Interpolates matched values into a String.replace()-style pattern
+  function interpolate(pattern, match) {
+    return pattern.replace(/\$(\$|\d{1,2})/, function (m, what) {
+      return match[what === '$' ? 0 : Number(what)];
+    });
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.router.$urlRouterProvider#rule
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Defines rules that are used by `$urlRouterProvider` to find matches for
+   * specific URLs.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   // Here's an example of how you might allow case insensitive urls
+   *   $urlRouterProvider.rule(function ($injector, $location) {
+   *     var path = $location.path(),
+   *         normalized = path.toLowerCase();
+   *
+   *     if (path !== normalized) {
+   *       return normalized;
+   *     }
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {object} rule Handler function that takes `$injector` and `$location`
+   * services as arguments. You can use them to return a valid path as a string.
+   *
+   * @return {object} `$urlRouterProvider` - `$urlRouterProvider` instance
+   */
+  this.rule = function (rule) {
+    if (!isFunction(rule)) throw new Error("'rule' must be a function");
+    rules.push(rule);
+    return this;
+  };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.router.$urlRouterProvider#otherwise
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Defines a path that is used when an invalid route is requested.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   // if the path doesn't match any of the urls you configured
+   *   // otherwise will take care of routing the user to the
+   *   // specified url
+   *   $urlRouterProvider.otherwise('/index');
+   *
+   *   // Example of using function rule as param
+   *   $urlRouterProvider.otherwise(function ($injector, $location) {
+   *     return '/a/valid/url';
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {string|object} rule The url path you want to redirect to or a function 
+   * rule that returns the url path. The function version is passed two params: 
+   * `$injector` and `$location` services, and must return a url string.
+   *
+   * @return {object} `$urlRouterProvider` - `$urlRouterProvider` instance
+   */
+  this.otherwise = function (rule) {
+    if (isString(rule)) {
+      var redirect = rule;
+      rule = function () { return redirect; };
+    }
+    else if (!isFunction(rule)) throw new Error("'rule' must be a function");
+    otherwise = rule;
+    return this;
+  };
+
+
+  function handleIfMatch($injector, handler, match) {
+    if (!match) return false;
+    var result = $injector.invoke(handler, handler, { $match: match });
+    return isDefined(result) ? result : true;
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.router.$urlRouterProvider#when
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Registers a handler for a given url matching. if handle is a string, it is
+   * treated as a redirect, and is interpolated according to the syntax of match
+   * (i.e. like `String.replace()` for `RegExp`, or like a `UrlMatcher` pattern otherwise).
+   *
+   * If the handler is a function, it is injectable. It gets invoked if `$location`
+   * matches. You have the option of inject the match object as `$match`.
+   *
+   * The handler can return
+   *
+   * - **falsy** to indicate that the rule didn't match after all, then `$urlRouter`
+   *   will continue trying to find another one that matches.
+   * - **string** which is treated as a redirect and passed to `$location.url()`
+   * - **void** or any **truthy** value tells `$urlRouter` that the url was handled.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   $urlRouterProvider.when($state.url, function ($match, $stateParams) {
+   *     if ($state.$current.navigable !== state ||
+   *         !equalForKeys($match, $stateParams) {
+   *      $state.transitionTo(state, $match, false);
+   *     }
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {string|object} what The incoming path that you want to redirect.
+   * @param {string|object} handler The path you want to redirect your user to.
+   */
+  this.when = function (what, handler) {
+    var redirect, handlerIsString = isString(handler);
+    if (isString(what)) what = $urlMatcherFactory.compile(what);
+
+    if (!handlerIsString && !isFunction(handler) && !isArray(handler))
+      throw new Error("invalid 'handler' in when()");
+
+    var strategies = {
+      matcher: function (what, handler) {
+        if (handlerIsString) {
+          redirect = $urlMatcherFactory.compile(handler);
+          handler = ['$match', function ($match) { return redirect.format($match); }];
+        }
+        return extend(function ($injector, $location) {
+          return handleIfMatch($injector, handler, what.exec($location.path(), $location.search()));
+        }, {
+          prefix: isString(what.prefix) ? what.prefix : ''
+        });
+      },
+      regex: function (what, handler) {
+        if (what.global || what.sticky) throw new Error("when() RegExp must not be global or sticky");
+
+        if (handlerIsString) {
+          redirect = handler;
+          handler = ['$match', function ($match) { return interpolate(redirect, $match); }];
+        }
+        return extend(function ($injector, $location) {
+          return handleIfMatch($injector, handler, what.exec($location.path()));
+        }, {
+          prefix: regExpPrefix(what)
+        });
+      }
+    };
+
+    var check = { matcher: $urlMatcherFactory.isMatcher(what), regex: what instanceof RegExp };
+
+    for (var n in check) {
+      if (check[n]) return this.rule(strategies[n](what, handler));
+    }
+
+    throw new Error("invalid 'what' in when()");
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.router.$urlRouterProvider#deferIntercept
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Disables (or enables) deferring location change interception.
+   *
+   * If you wish to customize the behavior of syncing the URL (for example, if you wish to
+   * defer a transition but maintain the current URL), call this method at configuration time.
+   * Then, at run time, call `$urlRouter.listen()` after you have configured your own
+   * `$locationChangeSuccess` event handler.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *
+   *   // Prevent $urlRouter from automatically intercepting URL changes;
+   *   // this allows you to configure custom behavior in between
+   *   // location changes and route synchronization:
+   *   $urlRouterProvider.deferIntercept();
+   *
+   * }).run(function ($rootScope, $urlRouter, UserService) {
+   *
+   *   $rootScope.$on('$locationChangeSuccess', function(e) {
+   *     // UserService is an example service for managing user state
+   *     if (UserService.isLoggedIn()) return;
+   *
+   *     // Prevent $urlRouter's default handler from firing
+   *     e.preventDefault();
+   *
+   *     UserService.handleLogin().then(function() {
+   *       // Once the user has logged in, sync the current URL
+   *       // to the router:
+   *       $urlRouter.sync();
+   *     });
+   *   });
+   *
+   *   // Configures $urlRouter's listener *after* your custom listener
+   *   $urlRouter.listen();
+   * });
+   * </pre>
+   *
+   * @param {boolean} defer Indicates whether to defer location change interception. Passing
+            no parameter is equivalent to `true`.
+   */
+  this.deferIntercept = function (defer) {
+    if (defer === undefined) defer = true;
+    interceptDeferred = defer;
+  };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.router.$urlRouter
+   *
+   * @requires $location
+   * @requires $rootScope
+   * @requires $injector
+   * @requires $browser
+   *
+   * @description
+   *
+   */
+  this.$get = $get;
+  $get.$inject = ['$location', '$rootScope', '$injector', '$browser'];
+  function $get(   $location,   $rootScope,   $injector,   $browser) {
+
+    var baseHref = $browser.baseHref(), location = $location.url(), lastPushedUrl;
+
+    function appendBasePath(url, isHtml5, absolute) {
+      if (baseHref === '/') return url;
+      if (isHtml5) return baseHref.slice(0, -1) + url;
+      if (absolute) return baseHref.slice(1) + url;
+      return url;
+    }
+
+    // TODO: Optimize groups of rules with non-empty prefix into some sort of decision tree
+    function update(evt) {
+      if (evt && evt.defaultPrevented) return;
+      var ignoreUpdate = lastPushedUrl && $location.url() === lastPushedUrl;
+      lastPushedUrl = undefined;
+      // TODO: Re-implement this in 1.0 for https://github.com/angular-ui/ui-router/issues/1573
+      //if (ignoreUpdate) return true;
+
+      function check(rule) {
+        var handled = rule($injector, $location);
+
+        if (!handled) return false;
+        if (isString(handled)) $location.replace().url(handled);
+        return true;
+      }
+      var n = rules.length, i;
+
+      for (i = 0; i < n; i++) {
+        if (check(rules[i])) return;
+      }
+      // always check otherwise last to allow dynamic updates to the set of rules
+      if (otherwise) check(otherwise);
+    }
+
+    function listen() {
+      listener = listener || $rootScope.$on('$locationChangeSuccess', update);
+      return listener;
+    }
+
+    if (!interceptDeferred) listen();
+
+    return {
+      /**
+       * @ngdoc function
+       * @name ui.router.router.$urlRouter#sync
+       * @methodOf ui.router.router.$urlRouter
+       *
+       * @description
+       * Triggers an update; the same update that happens when the address bar url changes, aka `$locationChangeSuccess`.
+       * This method is useful when you need to use `preventDefault()` on the `$locationChangeSuccess` event,
+       * perform some custom logic (route protection, auth, config, redirection, etc) and then finally proceed
+       * with the transition by calling `$urlRouter.sync()`.
+       *
+       * @example
+       * <pre>
+       * angular.module('app', ['ui.router'])
+       *   .run(function($rootScope, $urlRouter) {
+       *     $rootScope.$on('$locationChangeSuccess', function(evt) {
+       *       // Halt state change from even starting
+       *       evt.preventDefault();
+       *       // Perform custom logic
+       *       var meetsRequirement = ...
+       *       // Continue with the update and state transition if logic allows
+       *       if (meetsRequirement) $urlRouter.sync();
+       *     });
+       * });
+       * </pre>
+       */
+      sync: function() {
+        update();
+      },
+
+      listen: function() {
+        return listen();
+      },
+
+      update: function(read) {
+        if (read) {
+          location = $location.url();
+          return;
+        }
+        if ($location.url() === location) return;
+
+        $location.url(location);
+        $location.replace();
+      },
+
+      push: function(urlMatcher, params, options) {
+         var url = urlMatcher.format(params || {});
+
+        // Handle the special hash param, if needed
+        if (url !== null && params && params['#']) {
+            url += '#' + params['#'];
+        }
+
+        $location.url(url);
+        lastPushedUrl = options && options.$$avoidResync ? $location.url() : undefined;
+        if (options && options.replace) $location.replace();
+      },
+
+      /**
+       * @ngdoc function
+       * @name ui.router.router.$urlRouter#href
+       * @methodOf ui.router.router.$urlRouter
+       *
+       * @description
+       * A URL generation method that returns the compiled URL for a given
+       * {@link ui.router.util.type:UrlMatcher `UrlMatcher`}, populated with the provided parameters.
+       *
+       * @example
+       * <pre>
+       * $bob = $urlRouter.href(new UrlMatcher("/about/:person"), {
+       *   person: "bob"
+       * });
+       * // $bob == "/about/bob";
+       * </pre>
+       *
+       * @param {UrlMatcher} urlMatcher The `UrlMatcher` object which is used as the template of the URL to generate.
+       * @param {object=} params An object of parameter values to fill the matcher's required parameters.
+       * @param {object=} options Options object. The options are:
+       *
+       * - **`absolute`** - {boolean=false},  If true will generate an absolute url, e.g. "http://www.example.com/fullurl".
+       *
+       * @returns {string} Returns the fully compiled URL, or `null` if `params` fail validation against `urlMatcher`
+       */
+      href: function(urlMatcher, params, options) {
+        if (!urlMatcher.validates(params)) return null;
+
+        var isHtml5 = $locationProvider.html5Mode();
+        if (angular.isObject(isHtml5)) {
+          isHtml5 = isHtml5.enabled;
+        }
+        
+        var url = urlMatcher.format(params);
+        options = options || {};
+
+        if (!isHtml5 && url !== null) {
+          url = "#" + $locationProvider.hashPrefix() + url;
+        }
+
+        // Handle special hash param, if needed
+        if (url !== null && params && params['#']) {
+          url += '#' + params['#'];
+        }
+
+        url = appendBasePath(url, isHtml5, options.absolute);
+
+        if (!options.absolute || !url) {
+          return url;
+        }
+
+        var slash = (!isHtml5 && url ? '/' : ''), port = $location.port();
+        port = (port === 80 || port === 443 ? '' : ':' + port);
+
+        return [$location.protocol(), '://', $location.host(), port, slash, url].join('');
+      }
+    };
+  }
+}
+
+angular.module('ui.router.router').provider('$urlRouter', $UrlRouterProvider);
+
+/**
+ * @ngdoc object
+ * @name ui.router.state.$stateProvider
+ *
+ * @requires ui.router.router.$urlRouterProvider
+ * @requires ui.router.util.$urlMatcherFactoryProvider
+ *
+ * @description
+ * The new `$stateProvider` works similar to Angular's v1 router, but it focuses purely
+ * on state.
+ *
+ * A state corresponds to a "place" in the application in terms of the overall UI and
+ * navigation. A state describes (via the controller / template / view properties) what
+ * the UI looks like and does at that place.
+ *
+ * States often have things in common, and the primary way of factoring out these
+ * commonalities in this model is via the state hierarchy, i.e. parent/child states aka
+ * nested states.
+ *
+ * The `$stateProvider` provides interfaces to declare these states for your app.
+ */
+$StateProvider.$inject = ['$urlRouterProvider', '$urlMatcherFactoryProvider'];
+function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
+
+  var root, states = {}, $state, queue = {}, abstractKey = 'abstract';
+
+  // Builds state properties from definition passed to registerState()
+  var stateBuilder = {
+
+    // Derive parent state from a hierarchical name only if 'parent' is not explicitly defined.
+    // state.children = [];
+    // if (parent) parent.children.push(state);
+    parent: function(state) {
+      if (isDefined(state.parent) && state.parent) return findState(state.parent);
+      // regex matches any valid composite state name
+      // would match "contact.list" but not "contacts"
+      var compositeName = /^(.+)\.[^.]+$/.exec(state.name);
+      return compositeName ? findState(compositeName[1]) : root;
+    },
+
+    // inherit 'data' from parent and override by own values (if any)
+    data: function(state) {
+      if (state.parent && state.parent.data) {
+        state.data = state.self.data = extend({}, state.parent.data, state.data);
+      }
+      return state.data;
+    },
+
+    // Build a URLMatcher if necessary, either via a relative or absolute URL
+    url: function(state) {
+      var url = state.url, config = { params: state.params || {} };
+
+      if (isString(url)) {
+        if (url.charAt(0) == '^') return $urlMatcherFactory.compile(url.substring(1), config);
+        return (state.parent.navigable || root).url.concat(url, config);
+      }
+
+      if (!url || $urlMatcherFactory.isMatcher(url)) return url;
+      throw new Error("Invalid url '" + url + "' in state '" + state + "'");
+    },
+
+    // Keep track of the closest ancestor state that has a URL (i.e. is navigable)
+    navigable: function(state) {
+      return state.url ? state : (state.parent ? state.parent.navigable : null);
+    },
+
+    // Own parameters for this state. state.url.params is already built at this point. Create and add non-url params
+    ownParams: function(state) {
+      var params = state.url && state.url.params || new $$UMFP.ParamSet();
+      forEach(state.params || {}, function(config, id) {
+        if (!params[id]) params[id] = new $$UMFP.Param(id, null, config, "config");
+      });
+      return params;
+    },
+
+    // Derive parameters for this state and ensure they're a super-set of parent's parameters
+    params: function(state) {
+      return state.parent && state.parent.params ? extend(state.parent.params.$$new(), state.ownParams) : new $$UMFP.ParamSet();
+    },
+
+    // If there is no explicit multi-view configuration, make one up so we don't have
+    // to handle both cases in the view directive later. Note that having an explicit
+    // 'views' property will mean the default unnamed view properties are ignored. This
+    // is also a good time to resolve view names to absolute names, so everything is a
+    // straight lookup at link time.
+    views: function(state) {
+      var views = {};
+
+      forEach(isDefined(state.views) ? state.views : { '': state }, function (view, name) {
+        if (name.indexOf('@') < 0) name += '@' + state.parent.name;
+        views[name] = view;
+      });
+      return views;
+    },
+
+    // Keep a full path from the root down to this state as this is needed for state activation.
+    path: function(state) {
+      return state.parent ? state.parent.path.concat(state) : []; // exclude root from path
+    },
+
+    // Speed up $state.contains() as it's used a lot
+    includes: function(state) {
+      var includes = state.parent ? extend({}, state.parent.includes) : {};
+      includes[state.name] = true;
+      return includes;
+    },
+
+    $delegates: {}
+  };
+
+  function isRelative(stateName) {
+    return stateName.indexOf(".") === 0 || stateName.indexOf("^") === 0;
+  }
+
+  function findState(stateOrName, base) {
+    if (!stateOrName) return undefined;
+
+    var isStr = isString(stateOrName),
+        name  = isStr ? stateOrName : stateOrName.name,
+        path  = isRelative(name);
+
+    if (path) {
+      if (!base) throw new Error("No reference point given for path '"  + name + "'");
+      base = findState(base);
+      
+      var rel = name.split("."), i = 0, pathLength = rel.length, current = base;
+
+      for (; i < pathLength; i++) {
+        if (rel[i] === "" && i === 0) {
+          current = base;
+          continue;
+        }
+        if (rel[i] === "^") {
+          if (!current.parent) throw new Error("Path '" + name + "' not valid for state '" + base.name + "'");
+          current = current.parent;
+          continue;
+        }
+        break;
+      }
+      rel = rel.slice(i).join(".");
+      name = current.name + (current.name && rel ? "." : "") + rel;
+    }
+    var state = states[name];
+
+    if (state && (isStr || (!isStr && (state === stateOrName || state.self === stateOrName)))) {
+      return state;
+    }
+    return undefined;
+  }
+
+  function queueState(parentName, state) {
+    if (!queue[parentName]) {
+      queue[parentName] = [];
+    }
+    queue[parentName].push(state);
+  }
+
+  function flushQueuedChildren(parentName) {
+    var queued = queue[parentName] || [];
+    while(queued.length) {
+      registerState(queued.shift());
+    }
+  }
+
+  function registerState(state) {
+    // Wrap a new object around the state so we can store our private details easily.
+    state = inherit(state, {
+      self: state,
+      resolve: state.resolve || {},
+      toString: function() { return this.name; }
+    });
+
+    var name = state.name;
+    if (!isString(name) || name.indexOf('@') >= 0) throw new Error("State must have a valid name");
+    if (states.hasOwnProperty(name)) throw new Error("State '" + name + "'' is already defined");
+
+    // Get parent name
+    var parentName = (name.indexOf('.') !== -1) ? name.substring(0, name.lastIndexOf('.'))
+        : (isString(state.parent)) ? state.parent
+        : (isObject(state.parent) && isString(state.parent.name)) ? state.parent.name
+        : '';
+
+    // If parent is not registered yet, add state to queue and register later
+    if (parentName && !states[parentName]) {
+      return queueState(parentName, state.self);
+    }
+
+    for (var key in stateBuilder) {
+      if (isFunction(stateBuilder[key])) state[key] = stateBuilder[key](state, stateBuilder.$delegates[key]);
+    }
+    states[name] = state;
+
+    // Register the state in the global state list and with $urlRouter if necessary.
+    if (!state[abstractKey] && state.url) {
+      $urlRouterProvider.when(state.url, ['$match', '$stateParams', function ($match, $stateParams) {
+        if ($state.$current.navigable != state || !equalForKeys($match, $stateParams)) {
+          $state.transitionTo(state, $match, { inherit: true, location: false });
+        }
+      }]);
+    }
+
+    // Register any queued children
+    flushQueuedChildren(name);
+
+    return state;
+  }
+
+  // Checks text to see if it looks like a glob.
+  function isGlob (text) {
+    return text.indexOf('*') > -1;
+  }
+
+  // Returns true if glob matches current $state name.
+  function doesStateMatchGlob (glob) {
+    var globSegments = glob.split('.'),
+        segments = $state.$current.name.split('.');
+
+    //match single stars
+    for (var i = 0, l = globSegments.length; i < l; i++) {
+      if (globSegments[i] === '*') {
+        segments[i] = '*';
+      }
+    }
+
+    //match greedy starts
+    if (globSegments[0] === '**') {
+       segments = segments.slice(indexOf(segments, globSegments[1]));
+       segments.unshift('**');
+    }
+    //match greedy ends
+    if (globSegments[globSegments.length - 1] === '**') {
+       segments.splice(indexOf(segments, globSegments[globSegments.length - 2]) + 1, Number.MAX_VALUE);
+       segments.push('**');
+    }
+
+    if (globSegments.length != segments.length) {
+      return false;
+    }
+
+    return segments.join('') === globSegments.join('');
+  }
+
+
+  // Implicit root state that is always active
+  root = registerState({
+    name: '',
+    url: '^',
+    views: null,
+    'abstract': true
+  });
+  root.navigable = null;
+
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$stateProvider#decorator
+   * @methodOf ui.router.state.$stateProvider
+   *
+   * @description
+   * Allows you to extend (carefully) or override (at your own peril) the 
+   * `stateBuilder` object used internally by `$stateProvider`. This can be used 
+   * to add custom functionality to ui-router, for example inferring templateUrl 
+   * based on the state name.
+   *
+   * When passing only a name, it returns the current (original or decorated) builder
+   * function that matches `name`.
+   *
+   * The builder functions that can be decorated are listed below. Though not all
+   * necessarily have a good use case for decoration, that is up to you to decide.
+   *
+   * In addition, users can attach custom decorators, which will generate new 
+   * properties within the state's internal definition. There is currently no clear 
+   * use-case for this beyond accessing internal states (i.e. $state.$current), 
+   * however, expect this to become increasingly relevant as we introduce additional 
+   * meta-programming features.
+   *
+   * **Warning**: Decorators should not be interdependent because the order of 
+   * execution of the builder functions in non-deterministic. Builder functions 
+   * should only be dependent on the state definition object and super function.
+   *
+   *
+   * Existing builder functions and current return values:
+   *
+   * - **parent** `{object}` - returns the parent state object.
+   * - **data** `{object}` - returns state data, including any inherited data that is not
+   *   overridden by own values (if any).
+   * - **url** `{object}` - returns a {@link ui.router.util.type:UrlMatcher UrlMatcher}
+   *   or `null`.
+   * - **navigable** `{object}` - returns closest ancestor state that has a URL (aka is 
+   *   navigable).
+   * - **params** `{object}` - returns an array of state params that are ensured to 
+   *   be a super-set of parent's params.
+   * - **views** `{object}` - returns a views object where each key is an absolute view 
+   *   name (i.e. "viewName@stateName") and each value is the config object 
+   *   (template, controller) for the view. Even when you don't use the views object 
+   *   explicitly on a state config, one is still created for you internally.
+   *   So by decorating this builder function you have access to decorating template 
+   *   and controller properties.
+   * - **ownParams** `{object}` - returns an array of params that belong to the state, 
+   *   not including any params defined by ancestor states.
+   * - **path** `{string}` - returns the full path from the root down to this state. 
+   *   Needed for state activation.
+   * - **includes** `{object}` - returns an object that includes every state that 
+   *   would pass a `$state.includes()` test.
+   *
+   * @example
+   * <pre>
+   * // Override the internal 'views' builder with a function that takes the state
+   * // definition, and a reference to the internal function being overridden:
+   * $stateProvider.decorator('views', function (state, parent) {
+   *   var result = {},
+   *       views = parent(state);
+   *
+   *   angular.forEach(views, function (config, name) {
+   *     var autoName = (state.name + '.' + name).replace('.', '/');
+   *     config.templateUrl = config.templateUrl || '/partials/' + autoName + '.html';
+   *     result[name] = config;
+   *   });
+   *   return result;
+   * });
+   *
+   * $stateProvider.state('home', {
+   *   views: {
+   *     'contact.list': { controller: 'ListController' },
+   *     'contact.item': { controller: 'ItemController' }
+   *   }
+   * });
+   *
+   * // ...
+   *
+   * $state.go('home');
+   * // Auto-populates list and item views with /partials/home/contact/list.html,
+   * // and /partials/home/contact/item.html, respectively.
+   * </pre>
+   *
+   * @param {string} name The name of the builder function to decorate. 
+   * @param {object} func A function that is responsible for decorating the original 
+   * builder function. The function receives two parameters:
+   *
+   *   - `{object}` - state - The state config object.
+   *   - `{object}` - super - The original builder function.
+   *
+   * @return {object} $stateProvider - $stateProvider instance
+   */
+  this.decorator = decorator;
+  function decorator(name, func) {
+    /*jshint validthis: true */
+    if (isString(name) && !isDefined(func)) {
+      return stateBuilder[name];
+    }
+    if (!isFunction(func) || !isString(name)) {
+      return this;
+    }
+    if (stateBuilder[name] && !stateBuilder.$delegates[name]) {
+      stateBuilder.$delegates[name] = stateBuilder[name];
+    }
+    stateBuilder[name] = func;
+    return this;
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$stateProvider#state
+   * @methodOf ui.router.state.$stateProvider
+   *
+   * @description
+   * Registers a state configuration under a given state name. The stateConfig object
+   * has the following acceptable properties.
+   *
+   * @param {string} name A unique state name, e.g. "home", "about", "contacts".
+   * To create a parent/child state use a dot, e.g. "about.sales", "home.newest".
+   * @param {object} stateConfig State configuration object.
+   * @param {string|function=} stateConfig.template
+   * <a id='template'></a>
+   *   html template as a string or a function that returns
+   *   an html template as a string which should be used by the uiView directives. This property 
+   *   takes precedence over templateUrl.
+   *   
+   *   If `template` is a function, it will be called with the following parameters:
+   *
+   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by
+   *     applying the current state
+   *
+   * <pre>template:
+   *   "<h1>inline template definition</h1>" +
+   *   "<div ui-view></div>"</pre>
+   * <pre>template: function(params) {
+   *       return "<h1>generated template</h1>"; }</pre>
+   * </div>
+   *
+   * @param {string|function=} stateConfig.templateUrl
+   * <a id='templateUrl'></a>
+   *
+   *   path or function that returns a path to an html
+   *   template that should be used by uiView.
+   *   
+   *   If `templateUrl` is a function, it will be called with the following parameters:
+   *
+   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by 
+   *     applying the current state
+   *
+   * <pre>templateUrl: "home.html"</pre>
+   * <pre>templateUrl: function(params) {
+   *     return myTemplates[params.pageId]; }</pre>
+   *
+   * @param {function=} stateConfig.templateProvider
+   * <a id='templateProvider'></a>
+   *    Provider function that returns HTML content string.
+   * <pre> templateProvider:
+   *       function(MyTemplateService, params) {
+   *         return MyTemplateService.getTemplate(params.pageId);
+   *       }</pre>
+   *
+   * @param {string|function=} stateConfig.controller
+   * <a id='controller'></a>
+   *
+   *  Controller fn that should be associated with newly
+   *   related scope or the name of a registered controller if passed as a string.
+   *   Optionally, the ControllerAs may be declared here.
+   * <pre>controller: "MyRegisteredController"</pre>
+   * <pre>controller:
+   *     "MyRegisteredController as fooCtrl"}</pre>
+   * <pre>controller: function($scope, MyService) {
+   *     $scope.data = MyService.getData(); }</pre>
+   *
+   * @param {function=} stateConfig.controllerProvider
+   * <a id='controllerProvider'></a>
+   *
+   * Injectable provider function that returns the actual controller or string.
+   * <pre>controllerProvider:
+   *   function(MyResolveData) {
+   *     if (MyResolveData.foo)
+   *       return "FooCtrl"
+   *     else if (MyResolveData.bar)
+   *       return "BarCtrl";
+   *     else return function($scope) {
+   *       $scope.baz = "Qux";
+   *     }
+   *   }</pre>
+   *
+   * @param {string=} stateConfig.controllerAs
+   * <a id='controllerAs'></a>
+   * 
+   * A controller alias name. If present the controller will be
+   *   published to scope under the controllerAs name.
+   * <pre>controllerAs: "myCtrl"</pre>
+   *
+   * @param {string|object=} stateConfig.parent
+   * <a id='parent'></a>
+   * Optionally specifies the parent state of this state.
+   *
+   * <pre>parent: 'parentState'</pre>
+   * <pre>parent: parentState // JS variable</pre>
+   *
+   * @param {object=} stateConfig.resolve
+   * <a id='resolve'></a>
+   *
+   * An optional map&lt;string, function&gt; of dependencies which
+   *   should be injected into the controller. If any of these dependencies are promises, 
+   *   the router will wait for them all to be resolved before the controller is instantiated.
+   *   If all the promises are resolved successfully, the $stateChangeSuccess event is fired
+   *   and the values of the resolved promises are injected into any controllers that reference them.
+   *   If any  of the promises are rejected the $stateChangeError event is fired.
+   *
+   *   The map object is:
+   *   
+   *   - key - {string}: name of dependency to be injected into controller
+   *   - factory - {string|function}: If string then it is alias for service. Otherwise if function, 
+   *     it is injected and return value it treated as dependency. If result is a promise, it is 
+   *     resolved before its value is injected into controller.
+   *
+   * <pre>resolve: {
+   *     myResolve1:
+   *       function($http, $stateParams) {
+   *         return $http.get("/api/foos/"+stateParams.fooID);
+   *       }
+   *     }</pre>
+   *
+   * @param {string=} stateConfig.url
+   * <a id='url'></a>
+   *
+   *   A url fragment with optional parameters. When a state is navigated or
+   *   transitioned to, the `$stateParams` service will be populated with any 
+   *   parameters that were passed.
+   *
+   *   (See {@link ui.router.util.type:UrlMatcher UrlMatcher} `UrlMatcher`} for
+   *   more details on acceptable patterns )
+   *
+   * examples:
+   * <pre>url: "/home"
+   * url: "/users/:userid"
+   * url: "/books/{bookid:[a-zA-Z_-]}"
+   * url: "/books/{categoryid:int}"
+   * url: "/books/{publishername:string}/{categoryid:int}"
+   * url: "/messages?before&after"
+   * url: "/messages?{before:date}&{after:date}"
+   * url: "/messages/:mailboxid?{before:date}&{after:date}"
+   * </pre>
+   *
+   * @param {object=} stateConfig.views
+   * <a id='views'></a>
+   * an optional map&lt;string, object&gt; which defined multiple views, or targets views
+   * manually/explicitly.
+   *
+   * Examples:
+   *
+   * Targets three named `ui-view`s in the parent state's template
+   * <pre>views: {
+   *     header: {
+   *       controller: "headerCtrl",
+   *       templateUrl: "header.html"
+   *     }, body: {
+   *       controller: "bodyCtrl",
+   *       templateUrl: "body.html"
+   *     }, footer: {
+   *       controller: "footCtrl",
+   *       templateUrl: "footer.html"
+   *     }
+   *   }</pre>
+   *
+   * Targets named `ui-view="header"` from grandparent state 'top''s template, and named `ui-view="body" from parent state's template.
+   * <pre>views: {
+   *     'header@top': {
+   *       controller: "msgHeaderCtrl",
+   *       templateUrl: "msgHeader.html"
+   *     }, 'body': {
+   *       controller: "messagesCtrl",
+   *       templateUrl: "messages.html"
+   *     }
+   *   }</pre>
+   *
+   * @param {boolean=} [stateConfig.abstract=false]
+   * <a id='abstract'></a>
+   * An abstract state will never be directly activated,
+   *   but can provide inherited properties to its common children states.
+   * <pre>abstract: true</pre>
+   *
+   * @param {function=} stateConfig.onEnter
+   * <a id='onEnter'></a>
+   *
+   * Callback function for when a state is entered. Good way
+   *   to trigger an action or dispatch an event, such as opening a dialog.
+   * If minifying your scripts, make sure to explictly annotate this function,
+   * because it won't be automatically annotated by your build tools.
+   *
+   * <pre>onEnter: function(MyService, $stateParams) {
+   *     MyService.foo($stateParams.myParam);
+   * }</pre>
+   *
+   * @param {function=} stateConfig.onExit
+   * <a id='onExit'></a>
+   *
+   * Callback function for when a state is exited. Good way to
+   *   trigger an action or dispatch an event, such as opening a dialog.
+   * If minifying your scripts, make sure to explictly annotate this function,
+   * because it won't be automatically annotated by your build tools.
+   *
+   * <pre>onExit: function(MyService, $stateParams) {
+   *     MyService.cleanup($stateParams.myParam);
+   * }</pre>
+   *
+   * @param {boolean=} [stateConfig.reloadOnSearch=true]
+   * <a id='reloadOnSearch'></a>
+   *
+   * If `false`, will not retrigger the same state
+   *   just because a search/query parameter has changed (via $location.search() or $location.hash()). 
+   *   Useful for when you'd like to modify $location.search() without triggering a reload.
+   * <pre>reloadOnSearch: false</pre>
+   *
+   * @param {object=} stateConfig.data
+   * <a id='data'></a>
+   *
+   * Arbitrary data object, useful for custom configuration.  The parent state's `data` is
+   *   prototypally inherited.  In other words, adding a data property to a state adds it to
+   *   the entire subtree via prototypal inheritance.
+   *
+   * <pre>data: {
+   *     requiredRole: 'foo'
+   * } </pre>
+   *
+   * @param {object=} stateConfig.params
+   * <a id='params'></a>
+   *
+   * A map which optionally configures parameters declared in the `url`, or
+   *   defines additional non-url parameters.  For each parameter being
+   *   configured, add a configuration object keyed to the name of the parameter.
+   *
+   *   Each parameter configuration object may contain the following properties:
+   *
+   *   - ** value ** - {object|function=}: specifies the default value for this
+   *     parameter.  This implicitly sets this parameter as optional.
+   *
+   *     When UI-Router routes to a state and no value is
+   *     specified for this parameter in the URL or transition, the
+   *     default value will be used instead.  If `value` is a function,
+   *     it will be injected and invoked, and the return value used.
+   *
+   *     *Note*: `undefined` is treated as "no default value" while `null`
+   *     is treated as "the default value is `null`".
+   *
+   *     *Shorthand*: If you only need to configure the default value of the
+   *     parameter, you may use a shorthand syntax.   In the **`params`**
+   *     map, instead mapping the param name to a full parameter configuration
+   *     object, simply set map it to the default parameter value, e.g.:
+   *
+   * <pre>// define a parameter's default value
+   * params: {
+   *     param1: { value: "defaultValue" }
+   * }
+   * // shorthand default values
+   * params: {
+   *     param1: "defaultValue",
+   *     param2: "param2Default"
+   * }</pre>
+   *
+   *   - ** array ** - {boolean=}: *(default: false)* If true, the param value will be
+   *     treated as an array of values.  If you specified a Type, the value will be
+   *     treated as an array of the specified Type.  Note: query parameter values
+   *     default to a special `"auto"` mode.
+   *
+   *     For query parameters in `"auto"` mode, if multiple  values for a single parameter
+   *     are present in the URL (e.g.: `/foo?bar=1&bar=2&bar=3`) then the values
+   *     are mapped to an array (e.g.: `{ foo: [ '1', '2', '3' ] }`).  However, if
+   *     only one value is present (e.g.: `/foo?bar=1`) then the value is treated as single
+   *     value (e.g.: `{ foo: '1' }`).
+   *
+   * <pre>params: {
+   *     param1: { array: true }
+   * }</pre>
+   *
+   *   - ** squash ** - {bool|string=}: `squash` configures how a default parameter value is represented in the URL when
+   *     the current parameter value is the same as the default value. If `squash` is not set, it uses the
+   *     configured default squash policy.
+   *     (See {@link ui.router.util.$urlMatcherFactory#methods_defaultSquashPolicy `defaultSquashPolicy()`})
+   *
+   *   There are three squash settings:
+   *
+   *     - false: The parameter's default value is not squashed.  It is encoded and included in the URL
+   *     - true: The parameter's default value is omitted from the URL.  If the parameter is preceeded and followed
+   *       by slashes in the state's `url` declaration, then one of those slashes are omitted.
+   *       This can allow for cleaner looking URLs.
+   *     - `"<arbitrary string>"`: The parameter's default value is replaced with an arbitrary placeholder of  your choice.
+   *
+   * <pre>params: {
+   *     param1: {
+   *       value: "defaultId",
+   *       squash: true
+   * } }
+   * // squash "defaultValue" to "~"
+   * params: {
+   *     param1: {
+   *       value: "defaultValue",
+   *       squash: "~"
+   * } }
+   * </pre>
+   *
+   *
+   * @example
+   * <pre>
+   * // Some state name examples
+   *
+   * // stateName can be a single top-level name (must be unique).
+   * $stateProvider.state("home", {});
+   *
+   * // Or it can be a nested state name. This state is a child of the
+   * // above "home" state.
+   * $stateProvider.state("home.newest", {});
+   *
+   * // Nest states as deeply as needed.
+   * $stateProvider.state("home.newest.abc.xyz.inception", {});
+   *
+   * // state() returns $stateProvider, so you can chain state declarations.
+   * $stateProvider
+   *   .state("home", {})
+   *   .state("about", {})
+   *   .state("contacts", {});
+   * </pre>
+   *
+   */
+  this.state = state;
+  function state(name, definition) {
+    /*jshint validthis: true */
+    if (isObject(name)) definition = name;
+    else definition.name = name;
+    registerState(definition);
+    return this;
+  }
+
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$state
+   *
+   * @requires $rootScope
+   * @requires $q
+   * @requires ui.router.state.$view
+   * @requires $injector
+   * @requires ui.router.util.$resolve
+   * @requires ui.router.state.$stateParams
+   * @requires ui.router.router.$urlRouter
+   *
+   * @property {object} params A param object, e.g. {sectionId: section.id)}, that 
+   * you'd like to test against the current active state.
+   * @property {object} current A reference to the state's config object. However 
+   * you passed it in. Useful for accessing custom data.
+   * @property {object} transition Currently pending transition. A promise that'll 
+   * resolve or reject.
+   *
+   * @description
+   * `$state` service is responsible for representing states as well as transitioning
+   * between them. It also provides interfaces to ask for current state or even states
+   * you're coming from.
+   */
+  this.$get = $get;
+  $get.$inject = ['$rootScope', '$q', '$view', '$injector', '$resolve', '$stateParams', '$urlRouter', '$location', '$urlMatcherFactory'];
+  function $get(   $rootScope,   $q,   $view,   $injector,   $resolve,   $stateParams,   $urlRouter,   $location,   $urlMatcherFactory) {
+
+    var TransitionSuperseded = $q.reject(new Error('transition superseded'));
+    var TransitionPrevented = $q.reject(new Error('transition prevented'));
+    var TransitionAborted = $q.reject(new Error('transition aborted'));
+    var TransitionFailed = $q.reject(new Error('transition failed'));
+
+    // Handles the case where a state which is the target of a transition is not found, and the user
+    // can optionally retry or defer the transition
+    function handleRedirect(redirect, state, params, options) {
+      /**
+       * @ngdoc event
+       * @name ui.router.state.$state#$stateNotFound
+       * @eventOf ui.router.state.$state
+       * @eventType broadcast on root scope
+       * @description
+       * Fired when a requested state **cannot be found** using the provided state name during transition.
+       * The event is broadcast allowing any handlers a single chance to deal with the error (usually by
+       * lazy-loading the unfound state). A special `unfoundState` object is passed to the listener handler,
+       * you can see its three properties in the example. You can use `event.preventDefault()` to abort the
+       * transition and the promise returned from `go` will be rejected with a `'transition aborted'` value.
+       *
+       * @param {Object} event Event object.
+       * @param {Object} unfoundState Unfound State information. Contains: `to, toParams, options` properties.
+       * @param {State} fromState Current state object.
+       * @param {Object} fromParams Current state params.
+       *
+       * @example
+       *
+       * <pre>
+       * // somewhere, assume lazy.state has not been defined
+       * $state.go("lazy.state", {a:1, b:2}, {inherit:false});
+       *
+       * // somewhere else
+       * $scope.$on('$stateNotFound',
+       * function(event, unfoundState, fromState, fromParams){
+       *     console.log(unfoundState.to); // "lazy.state"
+       *     console.log(unfoundState.toParams); // {a:1, b:2}
+       *     console.log(unfoundState.options); // {inherit:false} + default options
+       * })
+       * </pre>
+       */
+      var evt = $rootScope.$broadcast('$stateNotFound', redirect, state, params);
+
+      if (evt.defaultPrevented) {
+        $urlRouter.update();
+        return TransitionAborted;
+      }
+
+      if (!evt.retry) {
+        return null;
+      }
+
+      // Allow the handler to return a promise to defer state lookup retry
+      if (options.$retry) {
+        $urlRouter.update();
+        return TransitionFailed;
+      }
+      var retryTransition = $state.transition = $q.when(evt.retry);
+
+      retryTransition.then(function() {
+        if (retryTransition !== $state.transition) return TransitionSuperseded;
+        redirect.options.$retry = true;
+        return $state.transitionTo(redirect.to, redirect.toParams, redirect.options);
+      }, function() {
+        return TransitionAborted;
+      });
+      $urlRouter.update();
+
+      return retryTransition;
+    }
+
+    root.locals = { resolve: null, globals: { $stateParams: {} } };
+
+    $state = {
+      params: {},
+      current: root.self,
+      $current: root,
+      transition: null
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#reload
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A method that force reloads the current state. All resolves are re-resolved,
+     * controllers reinstantiated, and events re-fired.
+     *
+     * @example
+     * <pre>
+     * var app angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.reload = function(){
+     *     $state.reload();
+     *   }
+     * });
+     * </pre>
+     *
+     * `reload()` is just an alias for:
+     * <pre>
+     * $state.transitionTo($state.current, $stateParams, { 
+     *   reload: true, inherit: false, notify: true
+     * });
+     * </pre>
+     *
+     * @param {string=|object=} state - A state name or a state object, which is the root of the resolves to be re-resolved.
+     * @example
+     * <pre>
+     * //assuming app application consists of 3 states: 'contacts', 'contacts.detail', 'contacts.detail.item' 
+     * //and current state is 'contacts.detail.item'
+     * var app angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.reload = function(){
+     *     //will reload 'contact.detail' and 'contact.detail.item' states
+     *     $state.reload('contact.detail');
+     *   }
+     * });
+     * </pre>
+     *
+     * `reload()` is just an alias for:
+     * <pre>
+     * $state.transitionTo($state.current, $stateParams, { 
+     *   reload: true, inherit: false, notify: true
+     * });
+     * </pre>
+
+     * @returns {promise} A promise representing the state of the new transition. See
+     * {@link ui.router.state.$state#methods_go $state.go}.
+     */
+    $state.reload = function reload(state) {
+      return $state.transitionTo($state.current, $stateParams, { reload: state || true, inherit: false, notify: true});
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#go
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Convenience method for transitioning to a new state. `$state.go` calls 
+     * `$state.transitionTo` internally but automatically sets options to 
+     * `{ location: true, inherit: true, relative: $state.$current, notify: true }`. 
+     * This allows you to easily use an absolute or relative to path and specify 
+     * only the parameters you'd like to update (while letting unspecified parameters 
+     * inherit from the currently active ancestor states).
+     *
+     * @example
+     * <pre>
+     * var app = angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.changeState = function () {
+     *     $state.go('contact.detail');
+     *   };
+     * });
+     * </pre>
+     * <img src='../ngdoc_assets/StateGoExamples.png'/>
+     *
+     * @param {string} to Absolute state name or relative state path. Some examples:
+     *
+     * - `$state.go('contact.detail')` - will go to the `contact.detail` state
+     * - `$state.go('^')` - will go to a parent state
+     * - `$state.go('^.sibling')` - will go to a sibling state
+     * - `$state.go('.child.grandchild')` - will go to grandchild state
+     *
+     * @param {object=} params A map of the parameters that will be sent to the state, 
+     * will populate $stateParams. Any parameters that are not specified will be inherited from currently 
+     * defined parameters. This allows, for example, going to a sibling state that shares parameters
+     * specified in a parent state. Parameter inheritance only works between common ancestor states, I.e.
+     * transitioning to a sibling will get you the parameters for all parents, transitioning to a child
+     * will get you all current parameters, etc.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
+     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
+     * - **`inherit`** - {boolean=true}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
+     * - **`reload`** (v0.2.5) - {boolean=false}, If `true` will force transition even if the state or params 
+     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
+     *    use this when you want to force a reload when *everything* is the same, including search params.
+     *
+     * @returns {promise} A promise representing the state of the new transition.
+     *
+     * Possible success values:
+     *
+     * - $state.current
+     *
+     * <br/>Possible rejection values:
+     *
+     * - 'transition superseded' - when a newer transition has been started after this one
+     * - 'transition prevented' - when `event.preventDefault()` has been called in a `$stateChangeStart` listener
+     * - 'transition aborted' - when `event.preventDefault()` has been called in a `$stateNotFound` listener or
+     *   when a `$stateNotFound` `event.retry` promise errors.
+     * - 'transition failed' - when a state has been unsuccessfully found after 2 tries.
+     * - *resolve error* - when an error has occurred with a `resolve`
+     *
+     */
+    $state.go = function go(to, params, options) {
+      return $state.transitionTo(to, params, extend({ inherit: true, relative: $state.$current }, options));
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#transitionTo
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Low-level method for transitioning to a new state. {@link ui.router.state.$state#methods_go $state.go}
+     * uses `transitionTo` internally. `$state.go` is recommended in most situations.
+     *
+     * @example
+     * <pre>
+     * var app = angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.changeState = function () {
+     *     $state.transitionTo('contact.detail');
+     *   };
+     * });
+     * </pre>
+     *
+     * @param {string} to State name.
+     * @param {object=} toParams A map of the parameters that will be sent to the state,
+     * will populate $stateParams.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
+     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
+     * - **`inherit`** - {boolean=false}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
+     * - **`reload`** (v0.2.5) - {boolean=false|string=|object=}, If `true` will force transition even if the state or params 
+     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
+     *    use this when you want to force a reload when *everything* is the same, including search params.
+     *    if String, then will reload the state with the name given in reload, and any children.
+     *    if Object, then a stateObj is expected, will reload the state found in stateObj, and any children.
+     *
+     * @returns {promise} A promise representing the state of the new transition. See
+     * {@link ui.router.state.$state#methods_go $state.go}.
+     */
+    $state.transitionTo = function transitionTo(to, toParams, options) {
+      toParams = toParams || {};
+      options = extend({
+        location: true, inherit: false, relative: null, notify: true, reload: false, $retry: false
+      }, options || {});
+
+      var from = $state.$current, fromParams = $state.params, fromPath = from.path;
+      var evt, toState = findState(to, options.relative);
+
+      // Store the hash param for later (since it will be stripped out by various methods)
+      var hash = toParams['#'];
+
+      if (!isDefined(toState)) {
+        var redirect = { to: to, toParams: toParams, options: options };
+        var redirectResult = handleRedirect(redirect, from.self, fromParams, options);
+
+        if (redirectResult) {
+          return redirectResult;
+        }
+
+        // Always retry once if the $stateNotFound was not prevented
+        // (handles either redirect changed or state lazy-definition)
+        to = redirect.to;
+        toParams = redirect.toParams;
+        options = redirect.options;
+        toState = findState(to, options.relative);
+
+        if (!isDefined(toState)) {
+          if (!options.relative) throw new Error("No such state '" + to + "'");
+          throw new Error("Could not resolve '" + to + "' from state '" + options.relative + "'");
+        }
+      }
+      if (toState[abstractKey]) throw new Error("Cannot transition to abstract state '" + to + "'");
+      if (options.inherit) toParams = inheritParams($stateParams, toParams || {}, $state.$current, toState);
+      if (!toState.params.$$validates(toParams)) return TransitionFailed;
+
+      toParams = toState.params.$$values(toParams);
+      to = toState;
+
+      var toPath = to.path;
+
+      // Starting from the root of the path, keep all levels that haven't changed
+      var keep = 0, state = toPath[keep], locals = root.locals, toLocals = [];
+
+      if (!options.reload) {
+        while (state && state === fromPath[keep] && state.ownParams.$$equals(toParams, fromParams)) {
+          locals = toLocals[keep] = state.locals;
+          keep++;
+          state = toPath[keep];
+        }
+      } else if (isString(options.reload) || isObject(options.reload)) {
+        if (isObject(options.reload) && !options.reload.name) {
+          throw new Error('Invalid reload state object');
+        }
+        
+        var reloadState = options.reload === true ? fromPath[0] : findState(options.reload);
+        if (options.reload && !reloadState) {
+          throw new Error("No such reload state '" + (isString(options.reload) ? options.reload : options.reload.name) + "'");
+        }
+
+        while (state && state === fromPath[keep] && state !== reloadState) {
+          locals = toLocals[keep] = state.locals;
+          keep++;
+          state = toPath[keep];
+        }
+      }
+
+      // If we're going to the same state and all locals are kept, we've got nothing to do.
+      // But clear 'transition', as we still want to cancel any other pending transitions.
+      // TODO: We may not want to bump 'transition' if we're called from a location change
+      // that we've initiated ourselves, because we might accidentally abort a legitimate
+      // transition initiated from code?
+      if (shouldSkipReload(to, toParams, from, fromParams, locals, options)) {
+        if (hash) toParams['#'] = hash;
+        $state.params = toParams;
+        copy($state.params, $stateParams);
+        if (options.location && to.navigable && to.navigable.url) {
+          $urlRouter.push(to.navigable.url, toParams, {
+            $$avoidResync: true, replace: options.location === 'replace'
+          });
+          $urlRouter.update(true);
+        }
+        $state.transition = null;
+        return $q.when($state.current);
+      }
+
+      // Filter parameters before we pass them to event handlers etc.
+      toParams = filterByKeys(to.params.$$keys(), toParams || {});
+
+      // Broadcast start event and cancel the transition if requested
+      if (options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeStart
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired when the state transition **begins**. You can use `event.preventDefault()`
+         * to prevent the transition from happening and then the transition promise will be
+         * rejected with a `'transition prevented'` value.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         *
+         * @example
+         *
+         * <pre>
+         * $rootScope.$on('$stateChangeStart',
+         * function(event, toState, toParams, fromState, fromParams){
+         *     event.preventDefault();
+         *     // transitionTo() promise will be rejected with
+         *     // a 'transition prevented' error
+         * })
+         * </pre>
+         */
+        if ($rootScope.$broadcast('$stateChangeStart', to.self, toParams, from.self, fromParams).defaultPrevented) {
+          $rootScope.$broadcast('$stateChangeCancel', to.self, toParams, from.self, fromParams);
+          $urlRouter.update();
+          return TransitionPrevented;
+        }
+      }
+
+      // Resolve locals for the remaining states, but don't update any global state just
+      // yet -- if anything fails to resolve the current state needs to remain untouched.
+      // We also set up an inheritance chain for the locals here. This allows the view directive
+      // to quickly look up the correct definition for each view in the current state. Even
+      // though we create the locals object itself outside resolveState(), it is initially
+      // empty and gets filled asynchronously. We need to keep track of the promise for the
+      // (fully resolved) current locals, and pass this down the chain.
+      var resolved = $q.when(locals);
+
+      for (var l = keep; l < toPath.length; l++, state = toPath[l]) {
+        locals = toLocals[l] = inherit(locals);
+        resolved = resolveState(state, toParams, state === to, resolved, locals, options);
+      }
+
+      // Once everything is resolved, we are ready to perform the actual transition
+      // and return a promise for the new state. We also keep track of what the
+      // current promise is, so that we can detect overlapping transitions and
+      // keep only the outcome of the last transition.
+      var transition = $state.transition = resolved.then(function () {
+        var l, entering, exiting;
+
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        // Exit 'from' states not kept
+        for (l = fromPath.length - 1; l >= keep; l--) {
+          exiting = fromPath[l];
+          if (exiting.self.onExit) {
+            $injector.invoke(exiting.self.onExit, exiting.self, exiting.locals.globals);
+          }
+          exiting.locals = null;
+        }
+
+        // Enter 'to' states not kept
+        for (l = keep; l < toPath.length; l++) {
+          entering = toPath[l];
+          entering.locals = toLocals[l];
+          if (entering.self.onEnter) {
+            $injector.invoke(entering.self.onEnter, entering.self, entering.locals.globals);
+          }
+        }
+
+        // Re-add the saved hash before we start returning things
+        if (hash) toParams['#'] = hash;
+
+        // Run it again, to catch any transitions in callbacks
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        // Update globals in $state
+        $state.$current = to;
+        $state.current = to.self;
+        $state.params = toParams;
+        copy($state.params, $stateParams);
+        $state.transition = null;
+
+        if (options.location && to.navigable) {
+          $urlRouter.push(to.navigable.url, to.navigable.locals.globals.$stateParams, {
+            $$avoidResync: true, replace: options.location === 'replace'
+          });
+        }
+
+        if (options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeSuccess
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired once the state transition is **complete**.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         */
+          $rootScope.$broadcast('$stateChangeSuccess', to.self, toParams, from.self, fromParams);
+        }
+        $urlRouter.update(true);
+
+        return $state.current;
+      }, function (error) {
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        $state.transition = null;
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeError
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired when an **error occurs** during transition. It's important to note that if you
+         * have any errors in your resolve functions (javascript errors, non-existent services, etc)
+         * they will not throw traditionally. You must listen for this $stateChangeError event to
+         * catch **ALL** errors.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         * @param {Error} error The resolve error object.
+         */
+        evt = $rootScope.$broadcast('$stateChangeError', to.self, toParams, from.self, fromParams, error);
+
+        if (!evt.defaultPrevented) {
+            $urlRouter.update();
+        }
+
+        return $q.reject(error);
+      });
+
+      return transition;
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#is
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Similar to {@link ui.router.state.$state#methods_includes $state.includes},
+     * but only checks for the full state name. If params is supplied then it will be
+     * tested for strict equality against the current active params object, so all params
+     * must match with none missing and no extras.
+     *
+     * @example
+     * <pre>
+     * $state.$current.name = 'contacts.details.item';
+     *
+     * // absolute name
+     * $state.is('contact.details.item'); // returns true
+     * $state.is(contactDetailItemStateObject); // returns true
+     *
+     * // relative name (. and ^), typically from a template
+     * // E.g. from the 'contacts.details' template
+     * <div ng-class="{highlighted: $state.is('.item')}">Item</div>
+     * </pre>
+     *
+     * @param {string|object} stateOrName The state name (absolute or relative) or state object you'd like to check.
+     * @param {object=} params A param object, e.g. `{sectionId: section.id}`, that you'd like
+     * to test against the current active state.
+     * @param {object=} options An options object.  The options are:
+     *
+     * - **`relative`** - {string|object} -  If `stateOrName` is a relative state name and `options.relative` is set, .is will
+     * test relative to `options.relative` state (or name).
+     *
+     * @returns {boolean} Returns true if it is the state.
+     */
+    $state.is = function is(stateOrName, params, options) {
+      options = extend({ relative: $state.$current }, options || {});
+      var state = findState(stateOrName, options.relative);
+
+      if (!isDefined(state)) { return undefined; }
+      if ($state.$current !== state) { return false; }
+      return params ? equalForKeys(state.params.$$values(params), $stateParams) : true;
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#includes
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A method to determine if the current active state is equal to or is the child of the
+     * state stateName. If any params are passed then they will be tested for a match as well.
+     * Not all the parameters need to be passed, just the ones you'd like to test for equality.
+     *
+     * @example
+     * Partial and relative names
+     * <pre>
+     * $state.$current.name = 'contacts.details.item';
+     *
+     * // Using partial names
+     * $state.includes("contacts"); // returns true
+     * $state.includes("contacts.details"); // returns true
+     * $state.includes("contacts.details.item"); // returns true
+     * $state.includes("contacts.list"); // returns false
+     * $state.includes("about"); // returns false
+     *
+     * // Using relative names (. and ^), typically from a template
+     * // E.g. from the 'contacts.details' template
+     * <div ng-class="{highlighted: $state.includes('.item')}">Item</div>
+     * </pre>
+     *
+     * Basic globbing patterns
+     * <pre>
+     * $state.$current.name = 'contacts.details.item.url';
+     *
+     * $state.includes("*.details.*.*"); // returns true
+     * $state.includes("*.details.**"); // returns true
+     * $state.includes("**.item.**"); // returns true
+     * $state.includes("*.details.item.url"); // returns true
+     * $state.includes("*.details.*.url"); // returns true
+     * $state.includes("*.details.*"); // returns false
+     * $state.includes("item.**"); // returns false
+     * </pre>
+     *
+     * @param {string} stateOrName A partial name, relative name, or glob pattern
+     * to be searched for within the current state name.
+     * @param {object=} params A param object, e.g. `{sectionId: section.id}`,
+     * that you'd like to test against the current active state.
+     * @param {object=} options An options object.  The options are:
+     *
+     * - **`relative`** - {string|object=} -  If `stateOrName` is a relative state reference and `options.relative` is set,
+     * .includes will test relative to `options.relative` state (or name).
+     *
+     * @returns {boolean} Returns true if it does include the state
+     */
+    $state.includes = function includes(stateOrName, params, options) {
+      options = extend({ relative: $state.$current }, options || {});
+      if (isString(stateOrName) && isGlob(stateOrName)) {
+        if (!doesStateMatchGlob(stateOrName)) {
+          return false;
+        }
+        stateOrName = $state.$current.name;
+      }
+
+      var state = findState(stateOrName, options.relative);
+      if (!isDefined(state)) { return undefined; }
+      if (!isDefined($state.$current.includes[state.name])) { return false; }
+      return params ? equalForKeys(state.params.$$values(params), $stateParams, objectKeys(params)) : true;
+    };
+
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#href
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A url generation method that returns the compiled url for the given state populated with the given params.
+     *
+     * @example
+     * <pre>
+     * expect($state.href("about.person", { person: "bob" })).toEqual("/about/bob");
+     * </pre>
+     *
+     * @param {string|object} stateOrName The state name or state object you'd like to generate a url from.
+     * @param {object=} params An object of parameter values to fill the state's required parameters.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`lossy`** - {boolean=true} -  If true, and if there is no url associated with the state provided in the
+     *    first parameter, then the constructed href url will be built from the first navigable ancestor (aka
+     *    ancestor with a valid url).
+     * - **`inherit`** - {boolean=true}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`absolute`** - {boolean=false},  If true will generate an absolute url, e.g. "http://www.example.com/fullurl".
+     * 
+     * @returns {string} compiled state url
+     */
+    $state.href = function href(stateOrName, params, options) {
+      options = extend({
+        lossy:    true,
+        inherit:  true,
+        absolute: false,
+        relative: $state.$current
+      }, options || {});
+
+      var state = findState(stateOrName, options.relative);
+
+      if (!isDefined(state)) return null;
+      if (options.inherit) params = inheritParams($stateParams, params || {}, $state.$current, state);
+      
+      var nav = (state && options.lossy) ? state.navigable : state;
+
+      if (!nav || nav.url === undefined || nav.url === null) {
+        return null;
+      }
+      return $urlRouter.href(nav.url, filterByKeys(state.params.$$keys().concat('#'), params || {}), {
+        absolute: options.absolute
+      });
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#get
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Returns the state configuration object for any specific state or all states.
+     *
+     * @param {string|object=} stateOrName (absolute or relative) If provided, will only get the config for
+     * the requested state. If not provided, returns an array of ALL state configs.
+     * @param {string|object=} context When stateOrName is a relative state reference, the state will be retrieved relative to context.
+     * @returns {Object|Array} State configuration object or array of all objects.
+     */
+    $state.get = function (stateOrName, context) {
+      if (arguments.length === 0) return map(objectKeys(states), function(name) { return states[name].self; });
+      var state = findState(stateOrName, context || $state.$current);
+      return (state && state.self) ? state.self : null;
+    };
+
+    function resolveState(state, params, paramsAreFiltered, inherited, dst, options) {
+      // Make a restricted $stateParams with only the parameters that apply to this state if
+      // necessary. In addition to being available to the controller and onEnter/onExit callbacks,
+      // we also need $stateParams to be available for any $injector calls we make during the
+      // dependency resolution process.
+      var $stateParams = (paramsAreFiltered) ? params : filterByKeys(state.params.$$keys(), params);
+      var locals = { $stateParams: $stateParams };
+
+      // Resolve 'global' dependencies for the state, i.e. those not specific to a view.
+      // We're also including $stateParams in this; that way the parameters are restricted
+      // to the set that should be visible to the state, and are independent of when we update
+      // the global $state and $stateParams values.
+      dst.resolve = $resolve.resolve(state.resolve, locals, dst.resolve, state);
+      var promises = [dst.resolve.then(function (globals) {
+        dst.globals = globals;
+      })];
+      if (inherited) promises.push(inherited);
+
+      function resolveViews() {
+        var viewsPromises = [];
+
+        // Resolve template and dependencies for all views.
+        forEach(state.views, function (view, name) {
+          var injectables = (view.resolve && view.resolve !== state.resolve ? view.resolve : {});
+          injectables.$template = [ function () {
+            return $view.load(name, { view: view, locals: dst.globals, params: $stateParams, notify: options.notify }) || '';
+          }];
+
+          viewsPromises.push($resolve.resolve(injectables, dst.globals, dst.resolve, state).then(function (result) {
+            // References to the controller (only instantiated at link time)
+            if (isFunction(view.controllerProvider) || isArray(view.controllerProvider)) {
+              var injectLocals = angular.extend({}, injectables, dst.globals);
+              result.$$controller = $injector.invoke(view.controllerProvider, null, injectLocals);
+            } else {
+              result.$$controller = view.controller;
+            }
+            // Provide access to the state itself for internal use
+            result.$$state = state;
+            result.$$controllerAs = view.controllerAs;
+            dst[name] = result;
+          }));
+        });
+
+        return $q.all(viewsPromises).then(function(){
+          return dst.globals;
+        });
+      }
+
+      // Wait for all the promises and then return the activation object
+      return $q.all(promises).then(resolveViews).then(function (values) {
+        return dst;
+      });
+    }
+
+    return $state;
+  }
+
+  function shouldSkipReload(to, toParams, from, fromParams, locals, options) {
+    // Return true if there are no differences in non-search (path/object) params, false if there are differences
+    function nonSearchParamsEqual(fromAndToState, fromParams, toParams) {
+      // Identify whether all the parameters that differ between `fromParams` and `toParams` were search params.
+      function notSearchParam(key) {
+        return fromAndToState.params[key].location != "search";
+      }
+      var nonQueryParamKeys = fromAndToState.params.$$keys().filter(notSearchParam);
+      var nonQueryParams = pick.apply({}, [fromAndToState.params].concat(nonQueryParamKeys));
+      var nonQueryParamSet = new $$UMFP.ParamSet(nonQueryParams);
+      return nonQueryParamSet.$$equals(fromParams, toParams);
+    }
+
+    // If reload was not explicitly requested
+    // and we're transitioning to the same state we're already in
+    // and    the locals didn't change
+    //     or they changed in a way that doesn't merit reloading
+    //        (reloadOnParams:false, or reloadOnSearch.false and only search params changed)
+    // Then return true.
+    if (!options.reload && to === from &&
+      (locals === from.locals || (to.self.reloadOnSearch === false && nonSearchParamsEqual(from, fromParams, toParams)))) {
+      return true;
+    }
+  }
+}
+
+angular.module('ui.router.state')
+  .value('$stateParams', {})
+  .provider('$state', $StateProvider);
+
+
+$ViewProvider.$inject = [];
+function $ViewProvider() {
+
+  this.$get = $get;
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$view
+   *
+   * @requires ui.router.util.$templateFactory
+   * @requires $rootScope
+   *
+   * @description
+   *
+   */
+  $get.$inject = ['$rootScope', '$templateFactory'];
+  function $get(   $rootScope,   $templateFactory) {
+    return {
+      // $view.load('full.viewName', { template: ..., controller: ..., resolve: ..., async: false, params: ... })
+      /**
+       * @ngdoc function
+       * @name ui.router.state.$view#load
+       * @methodOf ui.router.state.$view
+       *
+       * @description
+       *
+       * @param {string} name name
+       * @param {object} options option object.
+       */
+      load: function load(name, options) {
+        var result, defaults = {
+          template: null, controller: null, view: null, locals: null, notify: true, async: true, params: {}
+        };
+        options = extend(defaults, options);
+
+        if (options.view) {
+          result = $templateFactory.fromConfig(options.view, options.params, options.locals);
+        }
+        if (result && options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$viewContentLoading
+         * @eventOf ui.router.state.$view
+         * @eventType broadcast on root scope
+         * @description
+         *
+         * Fired once the view **begins loading**, *before* the DOM is rendered.
+         *
+         * @param {Object} event Event object.
+         * @param {Object} viewConfig The view config properties (template, controller, etc).
+         *
+         * @example
+         *
+         * <pre>
+         * $scope.$on('$viewContentLoading',
+         * function(event, viewConfig){
+         *     // Access to all the view config properties.
+         *     // and one special property 'targetView'
+         *     // viewConfig.targetView
+         * });
+         * </pre>
+         */
+          $rootScope.$broadcast('$viewContentLoading', options);
+        }
+        return result;
+      }
+    };
+  }
+}
+
+angular.module('ui.router.state').provider('$view', $ViewProvider);
+
+/**
+ * @ngdoc object
+ * @name ui.router.state.$uiViewScrollProvider
+ *
+ * @description
+ * Provider that returns the {@link ui.router.state.$uiViewScroll} service function.
+ */
+function $ViewScrollProvider() {
+
+  var useAnchorScroll = false;
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$uiViewScrollProvider#useAnchorScroll
+   * @methodOf ui.router.state.$uiViewScrollProvider
+   *
+   * @description
+   * Reverts back to using the core [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll) service for
+   * scrolling based on the url anchor.
+   */
+  this.useAnchorScroll = function () {
+    useAnchorScroll = true;
+  };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$uiViewScroll
+   *
+   * @requires $anchorScroll
+   * @requires $timeout
+   *
+   * @description
+   * When called with a jqLite element, it scrolls the element into view (after a
+   * `$timeout` so the DOM has time to refresh).
+   *
+   * If you prefer to rely on `$anchorScroll` to scroll the view to the anchor,
+   * this can be enabled by calling {@link ui.router.state.$uiViewScrollProvider#methods_useAnchorScroll `$uiViewScrollProvider.useAnchorScroll()`}.
+   */
+  this.$get = ['$anchorScroll', '$timeout', function ($anchorScroll, $timeout) {
+    if (useAnchorScroll) {
+      return $anchorScroll;
+    }
+
+    return function ($element) {
+      return $timeout(function () {
+        $element[0].scrollIntoView();
+      }, 0, false);
+    };
+  }];
+}
+
+angular.module('ui.router.state').provider('$uiViewScroll', $ViewScrollProvider);
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-view
+ *
+ * @requires ui.router.state.$state
+ * @requires $compile
+ * @requires $controller
+ * @requires $injector
+ * @requires ui.router.state.$uiViewScroll
+ * @requires $document
+ *
+ * @restrict ECA
+ *
+ * @description
+ * The ui-view directive tells $state where to place your templates.
+ *
+ * @param {string=} name A view name. The name should be unique amongst the other views in the
+ * same state. You can have views of the same name that live in different states.
+ *
+ * @param {string=} autoscroll It allows you to set the scroll behavior of the browser window
+ * when a view is populated. By default, $anchorScroll is overridden by ui-router's custom scroll
+ * service, {@link ui.router.state.$uiViewScroll}. This custom service let's you
+ * scroll ui-view elements into view when they are populated during a state activation.
+ *
+ * *Note: To revert back to old [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll)
+ * functionality, call `$uiViewScrollProvider.useAnchorScroll()`.*
+ *
+ * @param {string=} onload Expression to evaluate whenever the view updates.
+ * 
+ * @example
+ * A view can be unnamed or named. 
+ * <pre>
+ * <!-- Unnamed -->
+ * <div ui-view></div> 
+ * 
+ * <!-- Named -->
+ * <div ui-view="viewName"></div>
+ * </pre>
+ *
+ * You can only have one unnamed view within any template (or root html). If you are only using a 
+ * single view and it is unnamed then you can populate it like so:
+ * <pre>
+ * <div ui-view></div> 
+ * $stateProvider.state("home", {
+ *   template: "<h1>HELLO!</h1>"
+ * })
+ * </pre>
+ * 
+ * The above is a convenient shortcut equivalent to specifying your view explicitly with the {@link ui.router.state.$stateProvider#views `views`}
+ * config property, by name, in this case an empty name:
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "": {
+ *       template: "<h1>HELLO!</h1>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ * 
+ * But typically you'll only use the views property if you name your view or have more than one view 
+ * in the same template. There's not really a compelling reason to name a view if its the only one, 
+ * but you could if you wanted, like so:
+ * <pre>
+ * <div ui-view="main"></div>
+ * </pre> 
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "main": {
+ *       template: "<h1>HELLO!</h1>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ * 
+ * Really though, you'll use views to set up multiple views:
+ * <pre>
+ * <div ui-view></div>
+ * <div ui-view="chart"></div> 
+ * <div ui-view="data"></div> 
+ * </pre>
+ * 
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "": {
+ *       template: "<h1>HELLO!</h1>"
+ *     },
+ *     "chart": {
+ *       template: "<chart_thing/>"
+ *     },
+ *     "data": {
+ *       template: "<data_thing/>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ *
+ * Examples for `autoscroll`:
+ *
+ * <pre>
+ * <!-- If autoscroll present with no expression,
+ *      then scroll ui-view into view -->
+ * <ui-view autoscroll/>
+ *
+ * <!-- If autoscroll present with valid expression,
+ *      then scroll ui-view into view if expression evaluates to true -->
+ * <ui-view autoscroll='true'/>
+ * <ui-view autoscroll='false'/>
+ * <ui-view autoscroll='scopeVariable'/>
+ * </pre>
+ */
+$ViewDirective.$inject = ['$state', '$injector', '$uiViewScroll', '$interpolate'];
+function $ViewDirective(   $state,   $injector,   $uiViewScroll,   $interpolate) {
+
+  function getService() {
+    return ($injector.has) ? function(service) {
+      return $injector.has(service) ? $injector.get(service) : null;
+    } : function(service) {
+      try {
+        return $injector.get(service);
+      } catch (e) {
+        return null;
+      }
+    };
+  }
+
+  var service = getService(),
+      $animator = service('$animator'),
+      $animate = service('$animate');
+
+  // Returns a set of DOM manipulation functions based on which Angular version
+  // it should use
+  function getRenderer(attrs, scope) {
+    var statics = function() {
+      return {
+        enter: function (element, target, cb) { target.after(element); cb(); },
+        leave: function (element, cb) { element.remove(); cb(); }
+      };
+    };
+
+    if ($animate) {
+      return {
+        enter: function(element, target, cb) {
+          var promise = $animate.enter(element, null, target, cb);
+          if (promise && promise.then) promise.then(cb);
+        },
+        leave: function(element, cb) {
+          var promise = $animate.leave(element, cb);
+          if (promise && promise.then) promise.then(cb);
+        }
+      };
+    }
+
+    if ($animator) {
+      var animate = $animator && $animator(scope, attrs);
+
+      return {
+        enter: function(element, target, cb) {animate.enter(element, null, target); cb(); },
+        leave: function(element, cb) { animate.leave(element); cb(); }
+      };
+    }
+
+    return statics();
+  }
+
+  var directive = {
+    restrict: 'ECA',
+    terminal: true,
+    priority: 400,
+    transclude: 'element',
+    compile: function (tElement, tAttrs, $transclude) {
+      return function (scope, $element, attrs) {
+        var previousEl, currentEl, currentScope, latestLocals,
+            onloadExp     = attrs.onload || '',
+            autoScrollExp = attrs.autoscroll,
+            renderer      = getRenderer(attrs, scope);
+
+        scope.$on('$stateChangeSuccess', function() {
+          updateView(false);
+        });
+        scope.$on('$viewContentLoading', function() {
+          updateView(false);
+        });
+
+        updateView(true);
+
+        function cleanupLastView() {
+          if (previousEl) {
+            previousEl.remove();
+            previousEl = null;
+          }
+
+          if (currentScope) {
+            currentScope.$destroy();
+            currentScope = null;
+          }
+
+          if (currentEl) {
+            renderer.leave(currentEl, function() {
+              previousEl = null;
+            });
+
+            previousEl = currentEl;
+            currentEl = null;
+          }
+        }
+
+        function updateView(firstTime) {
+          var newScope,
+              name            = getUiViewName(scope, attrs, $element, $interpolate),
+              previousLocals  = name && $state.$current && $state.$current.locals[name];
+
+          if (!firstTime && previousLocals === latestLocals) return; // nothing to do
+          newScope = scope.$new();
+          latestLocals = $state.$current.locals[name];
+
+          var clone = $transclude(newScope, function(clone) {
+            renderer.enter(clone, $element, function onUiViewEnter() {
+              if(currentScope) {
+                currentScope.$emit('$viewContentAnimationEnded');
+              }
+
+              if (angular.isDefined(autoScrollExp) && !autoScrollExp || scope.$eval(autoScrollExp)) {
+                $uiViewScroll(clone);
+              }
+            });
+            cleanupLastView();
+          });
+
+          currentEl = clone;
+          currentScope = newScope;
+          /**
+           * @ngdoc event
+           * @name ui.router.state.directive:ui-view#$viewContentLoaded
+           * @eventOf ui.router.state.directive:ui-view
+           * @eventType emits on ui-view directive scope
+           * @description           *
+           * Fired once the view is **loaded**, *after* the DOM is rendered.
+           *
+           * @param {Object} event Event object.
+           */
+          currentScope.$emit('$viewContentLoaded');
+          currentScope.$eval(onloadExp);
+        }
+      };
+    }
+  };
+
+  return directive;
+}
+
+$ViewDirectiveFill.$inject = ['$compile', '$controller', '$state', '$interpolate'];
+function $ViewDirectiveFill (  $compile,   $controller,   $state,   $interpolate) {
+  return {
+    restrict: 'ECA',
+    priority: -400,
+    compile: function (tElement) {
+      var initial = tElement.html();
+      return function (scope, $element, attrs) {
+        var current = $state.$current,
+            name = getUiViewName(scope, attrs, $element, $interpolate),
+            locals  = current && current.locals[name];
+
+        if (! locals) {
+          return;
+        }
+
+        $element.data('$uiView', { name: name, state: locals.$$state });
+        $element.html(locals.$template ? locals.$template : initial);
+
+        var link = $compile($element.contents());
+
+        if (locals.$$controller) {
+          locals.$scope = scope;
+          locals.$element = $element;
+          var controller = $controller(locals.$$controller, locals);
+          if (locals.$$controllerAs) {
+            scope[locals.$$controllerAs] = controller;
+          }
+          $element.data('$ngControllerController', controller);
+          $element.children().data('$ngControllerController', controller);
+        }
+
+        link(scope);
+      };
+    }
+  };
+}
+
+/**
+ * Shared ui-view code for both directives:
+ * Given scope, element, and its attributes, return the view's name
+ */
+function getUiViewName(scope, attrs, element, $interpolate) {
+  var name = $interpolate(attrs.uiView || attrs.name || '')(scope);
+  var inherited = element.inheritedData('$uiView');
+  return name.indexOf('@') >= 0 ?  name :  (name + '@' + (inherited ? inherited.state.name : ''));
+}
+
+angular.module('ui.router.state').directive('uiView', $ViewDirective);
+angular.module('ui.router.state').directive('uiView', $ViewDirectiveFill);
+
+function parseStateRef(ref, current) {
+  var preparsed = ref.match(/^\s*({[^}]*})\s*$/), parsed;
+  if (preparsed) ref = current + '(' + preparsed[1] + ')';
+  parsed = ref.replace(/\n/g, " ").match(/^([^(]+?)\s*(\((.*)\))?$/);
+  if (!parsed || parsed.length !== 4) throw new Error("Invalid state ref '" + ref + "'");
+  return { state: parsed[1], paramExpr: parsed[3] || null };
+}
+
+function stateContext(el) {
+  var stateData = el.parent().inheritedData('$uiView');
+
+  if (stateData && stateData.state && stateData.state.name) {
+    return stateData.state;
+  }
+}
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-sref
+ *
+ * @requires ui.router.state.$state
+ * @requires $timeout
+ *
+ * @restrict A
+ *
+ * @description
+ * A directive that binds a link (`<a>` tag) to a state. If the state has an associated 
+ * URL, the directive will automatically generate & update the `href` attribute via 
+ * the {@link ui.router.state.$state#methods_href $state.href()} method. Clicking 
+ * the link will trigger a state transition with optional parameters. 
+ *
+ * Also middle-clicking, right-clicking, and ctrl-clicking on the link will be 
+ * handled natively by the browser.
+ *
+ * You can also use relative state paths within ui-sref, just like the relative 
+ * paths passed to `$state.go()`. You just need to be aware that the path is relative
+ * to the state that the link lives in, in other words the state that loaded the 
+ * template containing the link.
+ *
+ * You can specify options to pass to {@link ui.router.state.$state#go $state.go()}
+ * using the `ui-sref-opts` attribute. Options are restricted to `location`, `inherit`,
+ * and `reload`.
+ *
+ * @example
+ * Here's an example of how you'd use ui-sref and how it would compile. If you have the 
+ * following template:
+ * <pre>
+ * <a ui-sref="home">Home</a> | <a ui-sref="about">About</a> | <a ui-sref="{page: 2}">Next page</a>
+ * 
+ * <ul>
+ *     <li ng-repeat="contact in contacts">
+ *         <a ui-sref="contacts.detail({ id: contact.id })">{{ contact.name }}</a>
+ *     </li>
+ * </ul>
+ * </pre>
+ * 
+ * Then the compiled html would be (assuming Html5Mode is off and current state is contacts):
+ * <pre>
+ * <a href="#/home" ui-sref="home">Home</a> | <a href="#/about" ui-sref="about">About</a> | <a href="#/contacts?page=2" ui-sref="{page: 2}">Next page</a>
+ * 
+ * <ul>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/1" ui-sref="contacts.detail({ id: contact.id })">Joe</a>
+ *     </li>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/2" ui-sref="contacts.detail({ id: contact.id })">Alice</a>
+ *     </li>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/3" ui-sref="contacts.detail({ id: contact.id })">Bob</a>
+ *     </li>
+ * </ul>
+ *
+ * <a ui-sref="home" ui-sref-opts="{reload: true}">Home</a>
+ * </pre>
+ *
+ * @param {string} ui-sref 'stateName' can be any valid absolute or relative state
+ * @param {Object} ui-sref-opts options to pass to {@link ui.router.state.$state#go $state.go()}
+ */
+$StateRefDirective.$inject = ['$state', '$timeout'];
+function $StateRefDirective($state, $timeout) {
+  var allowedOptions = ['location', 'inherit', 'reload', 'absolute'];
+
+  return {
+    restrict: 'A',
+    require: ['?^uiSrefActive', '?^uiSrefActiveEq'],
+    link: function(scope, element, attrs, uiSrefActive) {
+      var ref = parseStateRef(attrs.uiSref, $state.current.name);
+      var params = null, url = null, base = stateContext(element) || $state.$current;
+      // SVGAElement does not use the href attribute, but rather the 'xlinkHref' attribute.
+      var hrefKind = Object.prototype.toString.call(element.prop('href')) === '[object SVGAnimatedString]' ?
+                 'xlink:href' : 'href';
+      var newHref = null, isAnchor = element.prop("tagName").toUpperCase() === "A";
+      var isForm = element[0].nodeName === "FORM";
+      var attr = isForm ? "action" : hrefKind, nav = true;
+
+      var options = { relative: base, inherit: true };
+      var optionsOverride = scope.$eval(attrs.uiSrefOpts) || {};
+
+      angular.forEach(allowedOptions, function(option) {
+        if (option in optionsOverride) {
+          options[option] = optionsOverride[option];
+        }
+      });
+
+      var update = function(newVal) {
+        if (newVal) params = angular.copy(newVal);
+        if (!nav) return;
+
+        newHref = $state.href(ref.state, params, options);
+
+        var activeDirective = uiSrefActive[1] || uiSrefActive[0];
+        if (activeDirective) {
+          activeDirective.$$addStateInfo(ref.state, params);
+        }
+        if (newHref === null) {
+          nav = false;
+          return false;
+        }
+        attrs.$set(attr, newHref);
+      };
+
+      if (ref.paramExpr) {
+        scope.$watch(ref.paramExpr, function(newVal, oldVal) {
+          if (newVal !== params) update(newVal);
+        }, true);
+        params = angular.copy(scope.$eval(ref.paramExpr));
+      }
+      update();
+
+      if (isForm) return;
+
+      element.bind("click", function(e) {
+        var button = e.which || e.button;
+        if ( !(button > 1 || e.ctrlKey || e.metaKey || e.shiftKey || element.attr('target')) ) {
+          // HACK: This is to allow ng-clicks to be processed before the transition is initiated:
+          var transition = $timeout(function() {
+            $state.go(ref.state, params, options);
+          });
+          e.preventDefault();
+
+          // if the state has no URL, ignore one preventDefault from the <a> directive.
+          var ignorePreventDefaultCount = isAnchor && !newHref ? 1: 0;
+          e.preventDefault = function() {
+            if (ignorePreventDefaultCount-- <= 0)
+              $timeout.cancel(transition);
+          };
+        }
+      });
+    }
+  };
+}
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-sref-active
+ *
+ * @requires ui.router.state.$state
+ * @requires ui.router.state.$stateParams
+ * @requires $interpolate
+ *
+ * @restrict A
+ *
+ * @description
+ * A directive working alongside ui-sref to add classes to an element when the
+ * related ui-sref directive's state is active, and removing them when it is inactive.
+ * The primary use-case is to simplify the special appearance of navigation menus
+ * relying on `ui-sref`, by having the "active" state's menu button appear different,
+ * distinguishing it from the inactive menu items.
+ *
+ * ui-sref-active can live on the same element as ui-sref or on a parent element. The first
+ * ui-sref-active found at the same level or above the ui-sref will be used.
+ *
+ * Will activate when the ui-sref's target state or any child state is active. If you
+ * need to activate only when the ui-sref target state is active and *not* any of
+ * it's children, then you will use
+ * {@link ui.router.state.directive:ui-sref-active-eq ui-sref-active-eq}
+ *
+ * @example
+ * Given the following template:
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active="active" class="item">
+ *     <a href ui-sref="app.user({user: 'bilbobaggins'})">@bilbobaggins</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ *
+ *
+ * When the app state is "app.user" (or any children states), and contains the state parameter "user" with value "bilbobaggins",
+ * the resulting HTML will appear as (note the 'active' class):
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active="active" class="item active">
+ *     <a ui-sref="app.user({user: 'bilbobaggins'})" href="/users/bilbobaggins">@bilbobaggins</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ *
+ * The class name is interpolated **once** during the directives link time (any further changes to the
+ * interpolated value are ignored).
+ *
+ * Multiple classes may be specified in a space-separated format:
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active='class1 class2 class3'>
+ *     <a ui-sref="app.user">link</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ */
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-sref-active-eq
+ *
+ * @requires ui.router.state.$state
+ * @requires ui.router.state.$stateParams
+ * @requires $interpolate
+ *
+ * @restrict A
+ *
+ * @description
+ * The same as {@link ui.router.state.directive:ui-sref-active ui-sref-active} but will only activate
+ * when the exact target state used in the `ui-sref` is active; no child states.
+ *
+ */
+$StateRefActiveDirective.$inject = ['$state', '$stateParams', '$interpolate'];
+function $StateRefActiveDirective($state, $stateParams, $interpolate) {
+  return  {
+    restrict: "A",
+    controller: ['$scope', '$element', '$attrs', function ($scope, $element, $attrs) {
+      var states = [], activeClass;
+
+      // There probably isn't much point in $observing this
+      // uiSrefActive and uiSrefActiveEq share the same directive object with some
+      // slight difference in logic routing
+      activeClass = $interpolate($attrs.uiSrefActiveEq || $attrs.uiSrefActive || '', false)($scope);
+
+      // Allow uiSref to communicate with uiSrefActive[Equals]
+      this.$$addStateInfo = function (newState, newParams) {
+        var state = $state.get(newState, stateContext($element));
+
+        states.push({
+          state: state || { name: newState },
+          params: newParams
+        });
+
+        update();
+      };
+
+      $scope.$on('$stateChangeSuccess', update);
+
+      // Update route state
+      function update() {
+        if (anyMatch()) {
+          $element.addClass(activeClass);
+        } else {
+          $element.removeClass(activeClass);
+        }
+      }
+
+      function anyMatch() {
+        for (var i = 0; i < states.length; i++) {
+          if (isMatch(states[i].state, states[i].params)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function isMatch(state, params) {
+        if (typeof $attrs.uiSrefActiveEq !== 'undefined') {
+          return $state.is(state.name, params);
+        } else {
+          return $state.includes(state.name, params);
+        }
+      }
+    }]
+  };
+}
+
+angular.module('ui.router.state')
+  .directive('uiSref', $StateRefDirective)
+  .directive('uiSrefActive', $StateRefActiveDirective)
+  .directive('uiSrefActiveEq', $StateRefActiveDirective);
+
+/**
+ * @ngdoc filter
+ * @name ui.router.state.filter:isState
+ *
+ * @requires ui.router.state.$state
+ *
+ * @description
+ * Translates to {@link ui.router.state.$state#methods_is $state.is("stateName")}.
+ */
+$IsStateFilter.$inject = ['$state'];
+function $IsStateFilter($state) {
+  var isFilter = function (state) {
+    return $state.is(state);
+  };
+  isFilter.$stateful = true;
+  return isFilter;
+}
+
+/**
+ * @ngdoc filter
+ * @name ui.router.state.filter:includedByState
+ *
+ * @requires ui.router.state.$state
+ *
+ * @description
+ * Translates to {@link ui.router.state.$state#methods_includes $state.includes('fullOrPartialStateName')}.
+ */
+$IncludedByStateFilter.$inject = ['$state'];
+function $IncludedByStateFilter($state) {
+  var includesFilter = function (state) {
+    return $state.includes(state);
+  };
+  includesFilter.$stateful = true;
+  return  includesFilter;
+}
+
+angular.module('ui.router.state')
+  .filter('isState', $IsStateFilter)
+  .filter('includedByState', $IncludedByStateFilter);
+})(window, window.angular);
+},{}],5:[function(require,module,exports){
 /**
  * @license AngularJS v1.4.7
  * (c) 2010-2015 Google, Inc. http://angularjs.org
@@ -28911,8 +33338,8062 @@ $provide.value("$locale", {
 })(window, document);
 
 !window.angular.$$csp().noInlineStyle && window.angular.element(document.head).prepend('<style type="text/css">@charset "UTF-8";[ng\\:cloak],[ng-cloak],[data-ng-cloak],[x-ng-cloak],.ng-cloak,.x-ng-cloak,.ng-hide:not(.ng-hide-animate){display:none !important;}ng\\:form{display:block;}.ng-animate-shim{visibility:hidden;}.ng-anchor{position:absolute;}</style>');
-},{}],3:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 require('./angular');
 module.exports = angular;
 
-},{"./angular":2}]},{},[1]);
+},{"./angular":5}],7:[function(require,module,exports){
+// http://wiki.commonjs.org/wiki/Unit_Testing/1.0
+//
+// THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
+//
+// Originally from narwhal.js (http://narwhaljs.org)
+// Copyright (c) 2009 Thomas Robinson <280north.com>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the 'Software'), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// when used in node, this will actually load the util module we depend on
+// versus loading the builtin util module as happens otherwise
+// this is a bug in node module loading as far as I am concerned
+var util = require('util/');
+
+var pSlice = Array.prototype.slice;
+var hasOwn = Object.prototype.hasOwnProperty;
+
+// 1. The assert module provides functions that throw
+// AssertionError's when particular conditions are not met. The
+// assert module must conform to the following interface.
+
+var assert = module.exports = ok;
+
+// 2. The AssertionError is defined in assert.
+// new assert.AssertionError({ message: message,
+//                             actual: actual,
+//                             expected: expected })
+
+assert.AssertionError = function AssertionError(options) {
+  this.name = 'AssertionError';
+  this.actual = options.actual;
+  this.expected = options.expected;
+  this.operator = options.operator;
+  if (options.message) {
+    this.message = options.message;
+    this.generatedMessage = false;
+  } else {
+    this.message = getMessage(this);
+    this.generatedMessage = true;
+  }
+  var stackStartFunction = options.stackStartFunction || fail;
+
+  if (Error.captureStackTrace) {
+    Error.captureStackTrace(this, stackStartFunction);
+  }
+  else {
+    // non v8 browsers so we can have a stacktrace
+    var err = new Error();
+    if (err.stack) {
+      var out = err.stack;
+
+      // try to strip useless frames
+      var fn_name = stackStartFunction.name;
+      var idx = out.indexOf('\n' + fn_name);
+      if (idx >= 0) {
+        // once we have located the function frame
+        // we need to strip out everything before it (and its line)
+        var next_line = out.indexOf('\n', idx + 1);
+        out = out.substring(next_line + 1);
+      }
+
+      this.stack = out;
+    }
+  }
+};
+
+// assert.AssertionError instanceof Error
+util.inherits(assert.AssertionError, Error);
+
+function replacer(key, value) {
+  if (util.isUndefined(value)) {
+    return '' + value;
+  }
+  if (util.isNumber(value) && !isFinite(value)) {
+    return value.toString();
+  }
+  if (util.isFunction(value) || util.isRegExp(value)) {
+    return value.toString();
+  }
+  return value;
+}
+
+function truncate(s, n) {
+  if (util.isString(s)) {
+    return s.length < n ? s : s.slice(0, n);
+  } else {
+    return s;
+  }
+}
+
+function getMessage(self) {
+  return truncate(JSON.stringify(self.actual, replacer), 128) + ' ' +
+         self.operator + ' ' +
+         truncate(JSON.stringify(self.expected, replacer), 128);
+}
+
+// At present only the three keys mentioned above are used and
+// understood by the spec. Implementations or sub modules can pass
+// other keys to the AssertionError's constructor - they will be
+// ignored.
+
+// 3. All of the following functions must throw an AssertionError
+// when a corresponding condition is not met, with a message that
+// may be undefined if not provided.  All assertion methods provide
+// both the actual and expected values to the assertion error for
+// display purposes.
+
+function fail(actual, expected, message, operator, stackStartFunction) {
+  throw new assert.AssertionError({
+    message: message,
+    actual: actual,
+    expected: expected,
+    operator: operator,
+    stackStartFunction: stackStartFunction
+  });
+}
+
+// EXTENSION! allows for well behaved errors defined elsewhere.
+assert.fail = fail;
+
+// 4. Pure assertion tests whether a value is truthy, as determined
+// by !!guard.
+// assert.ok(guard, message_opt);
+// This statement is equivalent to assert.equal(true, !!guard,
+// message_opt);. To test strictly for the value true, use
+// assert.strictEqual(true, guard, message_opt);.
+
+function ok(value, message) {
+  if (!value) fail(value, true, message, '==', assert.ok);
+}
+assert.ok = ok;
+
+// 5. The equality assertion tests shallow, coercive equality with
+// ==.
+// assert.equal(actual, expected, message_opt);
+
+assert.equal = function equal(actual, expected, message) {
+  if (actual != expected) fail(actual, expected, message, '==', assert.equal);
+};
+
+// 6. The non-equality assertion tests for whether two objects are not equal
+// with != assert.notEqual(actual, expected, message_opt);
+
+assert.notEqual = function notEqual(actual, expected, message) {
+  if (actual == expected) {
+    fail(actual, expected, message, '!=', assert.notEqual);
+  }
+};
+
+// 7. The equivalence assertion tests a deep equality relation.
+// assert.deepEqual(actual, expected, message_opt);
+
+assert.deepEqual = function deepEqual(actual, expected, message) {
+  if (!_deepEqual(actual, expected)) {
+    fail(actual, expected, message, 'deepEqual', assert.deepEqual);
+  }
+};
+
+function _deepEqual(actual, expected) {
+  // 7.1. All identical values are equivalent, as determined by ===.
+  if (actual === expected) {
+    return true;
+
+  } else if (util.isBuffer(actual) && util.isBuffer(expected)) {
+    if (actual.length != expected.length) return false;
+
+    for (var i = 0; i < actual.length; i++) {
+      if (actual[i] !== expected[i]) return false;
+    }
+
+    return true;
+
+  // 7.2. If the expected value is a Date object, the actual value is
+  // equivalent if it is also a Date object that refers to the same time.
+  } else if (util.isDate(actual) && util.isDate(expected)) {
+    return actual.getTime() === expected.getTime();
+
+  // 7.3 If the expected value is a RegExp object, the actual value is
+  // equivalent if it is also a RegExp object with the same source and
+  // properties (`global`, `multiline`, `lastIndex`, `ignoreCase`).
+  } else if (util.isRegExp(actual) && util.isRegExp(expected)) {
+    return actual.source === expected.source &&
+           actual.global === expected.global &&
+           actual.multiline === expected.multiline &&
+           actual.lastIndex === expected.lastIndex &&
+           actual.ignoreCase === expected.ignoreCase;
+
+  // 7.4. Other pairs that do not both pass typeof value == 'object',
+  // equivalence is determined by ==.
+  } else if (!util.isObject(actual) && !util.isObject(expected)) {
+    return actual == expected;
+
+  // 7.5 For all other Object pairs, including Array objects, equivalence is
+  // determined by having the same number of owned properties (as verified
+  // with Object.prototype.hasOwnProperty.call), the same set of keys
+  // (although not necessarily the same order), equivalent values for every
+  // corresponding key, and an identical 'prototype' property. Note: this
+  // accounts for both named and indexed properties on Arrays.
+  } else {
+    return objEquiv(actual, expected);
+  }
+}
+
+function isArguments(object) {
+  return Object.prototype.toString.call(object) == '[object Arguments]';
+}
+
+function objEquiv(a, b) {
+  if (util.isNullOrUndefined(a) || util.isNullOrUndefined(b))
+    return false;
+  // an identical 'prototype' property.
+  if (a.prototype !== b.prototype) return false;
+  // if one is a primitive, the other must be same
+  if (util.isPrimitive(a) || util.isPrimitive(b)) {
+    return a === b;
+  }
+  var aIsArgs = isArguments(a),
+      bIsArgs = isArguments(b);
+  if ((aIsArgs && !bIsArgs) || (!aIsArgs && bIsArgs))
+    return false;
+  if (aIsArgs) {
+    a = pSlice.call(a);
+    b = pSlice.call(b);
+    return _deepEqual(a, b);
+  }
+  var ka = objectKeys(a),
+      kb = objectKeys(b),
+      key, i;
+  // having the same number of owned properties (keys incorporates
+  // hasOwnProperty)
+  if (ka.length != kb.length)
+    return false;
+  //the same set of keys (although not necessarily the same order),
+  ka.sort();
+  kb.sort();
+  //~~~cheap key test
+  for (i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] != kb[i])
+      return false;
+  }
+  //equivalent values for every corresponding key, and
+  //~~~possibly expensive deep test
+  for (i = ka.length - 1; i >= 0; i--) {
+    key = ka[i];
+    if (!_deepEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+// 8. The non-equivalence assertion tests for any deep inequality.
+// assert.notDeepEqual(actual, expected, message_opt);
+
+assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
+  if (_deepEqual(actual, expected)) {
+    fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
+  }
+};
+
+// 9. The strict equality assertion tests strict equality, as determined by ===.
+// assert.strictEqual(actual, expected, message_opt);
+
+assert.strictEqual = function strictEqual(actual, expected, message) {
+  if (actual !== expected) {
+    fail(actual, expected, message, '===', assert.strictEqual);
+  }
+};
+
+// 10. The strict non-equality assertion tests for strict inequality, as
+// determined by !==.  assert.notStrictEqual(actual, expected, message_opt);
+
+assert.notStrictEqual = function notStrictEqual(actual, expected, message) {
+  if (actual === expected) {
+    fail(actual, expected, message, '!==', assert.notStrictEqual);
+  }
+};
+
+function expectedException(actual, expected) {
+  if (!actual || !expected) {
+    return false;
+  }
+
+  if (Object.prototype.toString.call(expected) == '[object RegExp]') {
+    return expected.test(actual);
+  } else if (actual instanceof expected) {
+    return true;
+  } else if (expected.call({}, actual) === true) {
+    return true;
+  }
+
+  return false;
+}
+
+function _throws(shouldThrow, block, expected, message) {
+  var actual;
+
+  if (util.isString(expected)) {
+    message = expected;
+    expected = null;
+  }
+
+  try {
+    block();
+  } catch (e) {
+    actual = e;
+  }
+
+  message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
+            (message ? ' ' + message : '.');
+
+  if (shouldThrow && !actual) {
+    fail(actual, expected, 'Missing expected exception' + message);
+  }
+
+  if (!shouldThrow && expectedException(actual, expected)) {
+    fail(actual, expected, 'Got unwanted exception' + message);
+  }
+
+  if ((shouldThrow && actual && expected &&
+      !expectedException(actual, expected)) || (!shouldThrow && actual)) {
+    throw actual;
+  }
+}
+
+// 11. Expected to throw an error:
+// assert.throws(block, Error_opt, message_opt);
+
+assert.throws = function(block, /*optional*/error, /*optional*/message) {
+  _throws.apply(this, [true].concat(pSlice.call(arguments)));
+};
+
+// EXTENSION! This is annoying to write outside this module.
+assert.doesNotThrow = function(block, /*optional*/message) {
+  _throws.apply(this, [false].concat(pSlice.call(arguments)));
+};
+
+assert.ifError = function(err) { if (err) {throw err;}};
+
+var objectKeys = Object.keys || function (obj) {
+  var keys = [];
+  for (var key in obj) {
+    if (hasOwn.call(obj, key)) keys.push(key);
+  }
+  return keys;
+};
+
+},{"util/":11}],8:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],9:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = setTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    clearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        setTimeout(drainQueue, 0);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],10:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],11:[function(require,module,exports){
+(function (process,global){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
+    }
+    return objects.join(' ');
+  }
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
+        }
+      default:
+        return x;
+    }
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
+    }
+  }
+  return str;
+};
+
+
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
+    };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
+  });
+
+  return hash;
+}
+
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
+    }
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
+    }
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+};
+
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
+};
+
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":10,"_process":9,"inherits":8}],12:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert');
+
+/**
+ * Given an object that should be a location, ensure that it has
+ * valid numeric longitude & latitude properties
+ *
+ * @param {Object} location object with longitude and latitude values
+ * @throws {AssertError} if the object is not a valid location
+ * @returns {undefined} nothing
+ * @private
+ */
+function assertLocation(location) {
+  assert(typeof location.latitude === 'number' &&
+    typeof location.longitude === 'number',
+    'location must be an object with numeric latitude & longitude properties');
+  if (location.zoom !== undefined) {
+    assert(typeof location.zoom === 'number', 'zoom must be numeric');
+  }
+}
+
+module.exports = assertLocation;
+
+},{"assert":7}],13:[function(require,module,exports){
+'use strict';
+
+module.exports = function(str) {
+  return window.atob(str);
+};
+
+},{}],14:[function(require,module,exports){
+'use strict';
+
+var interceptor = require('rest/interceptor');
+
+var callbackify = interceptor({
+  success: function (response) {
+    var request = response && response.request;
+    var callback = request && request.callback;
+
+    if (typeof callback === 'function') {
+      callback(null, response.entity);
+    }
+
+    return response;
+  },
+  error: function (response) {
+    var request = response && response.request;
+    var callback = request && request.callback;
+
+    if (typeof callback === 'function') {
+      var err = response.error || response.entity;
+      if (typeof err !== 'object') err = new Error(err);
+      callback(err);
+    }
+
+    return response;
+  }
+});
+
+module.exports = callbackify;
+
+},{"rest/interceptor":36}],15:[function(require,module,exports){
+'use strict';
+
+var rest = require('rest');
+var callbackify = require('./callbackify');
+
+// rest.js client with MIME support
+module.exports = function(config) {
+  return rest
+    .wrap(require('rest/interceptor/errorCode'))
+    .wrap(require('rest/interceptor/pathPrefix'), { prefix: config.endpoint })
+    .wrap(require('rest/interceptor/mime'), { mime: 'application/json' })
+    .wrap(require('rest/interceptor/defaultRequest'), {
+      params: { access_token: config.accessToken }
+    })
+    .wrap(require('rest/interceptor/template'))
+    .wrap(callbackify);
+};
+
+},{"./callbackify":14,"rest":32,"rest/interceptor/defaultRequest":37,"rest/interceptor/errorCode":38,"rest/interceptor/mime":39,"rest/interceptor/pathPrefix":40,"rest/interceptor/template":41}],16:[function(require,module,exports){
+// We keep all of the constants that declare endpoints in one
+// place, so that we could concievably update this for API layout
+// revisions.
+module.exports.DEFAULT_ENDPOINT = 'https://api.mapbox.com';
+module.exports.API_GEOCODER_FORWARD = '/geocoding/v5/{dataset}/{query}.json{?proximity}';
+module.exports.API_GEOCODER_REVERSE = '/geocoding/v5/{dataset}/{longitude},{latitude}.json';
+module.exports.API_DIRECTIONS = '/v4/directions/{profile}/{encodedWaypoints}.json{?alternatives,instructions,geometry,steps}';
+module.exports.API_DISTANCE = '/distances/v1/mapbox/{profile}';
+module.exports.API_SURFACE = '/v4/surface/{mapid}.json{?layer,fields,points,geojson,interpolate,encoded_polyline}';
+module.exports.API_UPLOADS = '/uploads/v1/{owner}';
+module.exports.API_UPLOAD = '/uploads/v1/{owner}/{upload}';
+module.exports.API_UPLOAD_CREDENTIALS = '/uploads/v1/{owner}/credentials';
+module.exports.API_MATCHING = '/matching/v4/{profile}.json';
+module.exports.API_DATASET_DATASETS = '/datasets/v1/{owner}';
+module.exports.API_DATASET_DATASET = '/datasets/v1/{owner}/{dataset}';
+module.exports.API_DATASET_FEATURES = '/datasets/v1/{owner}/{dataset}/features';
+module.exports.API_DATASET_FEATURE = '/datasets/v1/{owner}/{dataset}/features/{id}';
+module.exports.API_TILESTATS_STATISTICS = '/tilestats/v1/{owner}/{tileset}';
+module.exports.API_TILESTATS_LAYER = '/tilestats/v1/{owner}/{tileset}/{layer}';
+module.exports.API_TILESTATS_ATTRIBUTE = '/tilestats/v1/{owner}/{tileset}/{layer}/{attribute}';
+module.exports.API_STATIC = '/v4/{mapid}{+overlay}/{+xyz}/{width}x{height}{+retina}{.format}';
+
+},{}],17:[function(require,module,exports){
+'use strict';
+
+var assertLocation = require('./assert_location');
+
+/**
+ * Format waypionts in a way that's friendly to the directions and surface
+ * API: comma-separated latitude, longitude pairs with semicolons between
+ * them.
+ * @private
+ * @param {Array<Object>} waypoints array of objects with latitude and longitude
+ * properties
+ * @returns {string} formatted points
+ * @throws {Error} if the input is invalid
+ */
+function formatPoints(waypoints) {
+  return waypoints.map(function(location) {
+    assertLocation(location);
+    return location.longitude + ',' + location.latitude;
+  }).join(';');
+}
+
+module.exports = formatPoints;
+
+},{"./assert_location":12}],18:[function(require,module,exports){
+(function (process){
+'use strict';
+
+var atob = require('atob');
+
+/**
+ * Access tokens actually are data, and using them we can derive
+ * a user's username. This method attempts to do just that,
+ * decoding the part of the token after the first `.` into
+ * a username.
+ *
+ * @private
+ * @param {string} token an access token
+ * @return {string} username
+ */
+function getUser(token) {
+  var data = token.split('.')[1];
+  if (!data) return null;
+  data = data.replace(/-/g, '+').replace(/_/g, '/');
+
+  // window.atob does not require padding
+  if (!process.browser) {
+    var mod = data.length % 4;
+    if (mod === 2) data += '==';
+    if (mod === 3) data += '=';
+    if (mod === 1 || mod > 3) return null;
+  } else {
+    data = data.replace(/=/g, '');
+  }
+
+  try {
+    return JSON.parse(atob(data)).u;
+  } catch(err) {
+    return null;
+  }
+}
+
+module.exports = getUser;
+
+}).call(this,require('_process'))
+},{"_process":9,"atob":13}],19:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert');
+var constants = require('./constants');
+var client = require('./client');
+var getUser = require('./get_user');
+
+/**
+ * Services all have the same constructor pattern: you initialize them
+ * with an access token and options, and they validate those arguments
+ * in a predictable way. This is a constructor-generator that makes
+ * it possible to require each service's API individually.
+ *
+ * @private
+ * @param {string} name the name of the Mapbox API this class will access:
+ * this is set to the name of the function so it will show up in tracebacks
+ * @returns {Function} constructor function
+ */
+function makeService(name) {
+
+  function service(accessToken, options) {
+    this.name = name;
+
+    assert(typeof accessToken === 'string',
+      'accessToken required to instantiate Mapbox client');
+
+    var endpoint = constants.DEFAULT_ENDPOINT;
+
+    if (options !== undefined) {
+      assert(typeof options === 'object', 'options must be an object');
+      if (options.endpoint) {
+        assert(typeof options.endpoint === 'string', 'endpoint must be a string');
+        endpoint = options.endpoint;
+      }
+      if (options.account) {
+        assert(typeof options.account === 'string', 'account must be a string');
+        this.owner = options.account;
+      }
+    }
+
+    this.client = client({
+      endpoint: endpoint,
+      accessToken: accessToken
+    });
+
+    this.accessToken = accessToken;
+    this.endpoint = endpoint;
+    this.owner = this.owner || getUser(accessToken);
+    assert(!!this.owner, 'could not determine account from provided accessToken');
+
+  }
+
+  return service;
+}
+
+module.exports = makeService;
+
+},{"./client":15,"./constants":16,"./get_user":18,"assert":7}],20:[function(require,module,exports){
+'use strict';
+
+var makeClient = require('./make_service');
+var xtend = require('xtend/mutable');
+var MapboxGeocoder = require('./services/geocoder');
+var MapboxSurface = require('./services/surface');
+var MapboxDirections = require('./services/directions');
+var MapboxUploads = require('./services/uploads');
+var MapboxMatching = require('./services/matching');
+var MapboxDatasets = require('./services/datasets');
+var MapboxDistance = require('./services/distance');
+var MapboxTilestats = require('./services/tilestats');
+
+/**
+ * The JavaScript API to Mapbox services
+ *
+ * @class
+ * @throws {Error} if accessToken is not provided
+ * @param {string} accessToken a private or public access token
+ * @param {Object} options additional options provided for configuration
+ * @param {string} [options.endpoint=https://api.mapbox.com] location
+ * of the Mapbox API pointed-to. This can be customized to point to a
+ * Mapbox Atlas Server instance, or a different service, a mock,
+ * or a staging endpoint. Usually you don't need to customize this.
+ * @param {string} [options.account] account id to use for api
+ * requests. If not is specified, the account defaults to the owner
+ * of the provided accessToken.
+ * @example
+ * var client = new MapboxClient('ACCESSTOKEN');
+ */
+var MapboxClient = makeClient('MapboxClient');
+
+// Combine all client APIs into one API for when people require()
+// the main mapbox-sdk-js library.
+xtend(
+  MapboxClient.prototype,
+  MapboxGeocoder.prototype,
+  MapboxSurface.prototype,
+  MapboxDirections.prototype,
+  MapboxDistance.prototype,
+  MapboxMatching.prototype,
+  MapboxDatasets.prototype,
+  MapboxUploads.prototype,
+  MapboxTilestats.prototype
+);
+
+module.exports = MapboxClient;
+
+},{"./make_service":19,"./services/datasets":21,"./services/directions":22,"./services/distance":23,"./services/geocoder":24,"./services/matching":25,"./services/surface":26,"./services/tilestats":27,"./services/uploads":28,"xtend/mutable":74}],21:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  geojsonhint = require('geojsonhint/object'),
+  hat = require('hat'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var Datasets = module.exports = makeService('MapboxDatasets');
+
+/**
+ * To retrieve a listing of datasets for a particular account.
+ * This request requires an access token with the datasets:read scope.
+ *
+ * @param {Function} callback called with (err, datasets)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.listDatasets(function(err, datasets) {
+ *   console.log(datasets);
+ *   // [
+ *   //   {
+ *   //     "owner": {account},
+ *   //     "id": {dataset id},
+ *   //     "name": {dataset name},
+ *   //     "description": {dataset description},
+ *   //     "created": {timestamp},
+ *   //     "modified": {timestamp}
+ *   //   },
+ *   //   {
+ *   //     "owner": {account},
+ *   //     "id": {dataset id},
+ *   //     "name": {dataset name},
+ *   //     "description": {dataset description},
+ *   //     "created": {timestamp},
+ *   //     "modified": {timestamp}
+ *   //   }
+ *   // ]
+ * });
+ */
+Datasets.prototype.listDatasets = function(callback) {
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_DATASETS,
+    params: {
+      owner: this.owner
+    },
+    callback: callback
+  });
+};
+
+/**
+ * To create a new dataset. Valid properties include title and description (not required).
+ * This request requires an access token with the datasets:write scope.
+ *
+ * @param {object} [options] an object defining a dataset's properties
+ * @param {string} [options.name] the dataset's name
+ * @param {string} [options.description] the dataset's description
+ * @param {Function} callback called with (err, dataset)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.createDataset({ name: 'foo', description: 'bar' }, function(err, dataset) {
+ *   console.log(dataset);
+ *   // {
+ *   //   "owner": {account},
+ *   //   "id": {dataset id},
+ *   //   "name": "foo",
+ *   //   "description": "description",
+ *   //   "created": {timestamp},
+ *   //   "modified": {timestamp}
+ *   // }
+ * });
+ */
+Datasets.prototype.createDataset = function(options, callback) {
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_DATASETS,
+    params: {
+      owner: this.owner
+    },
+    entity: options,
+    callback: callback
+  });
+};
+
+/**
+ * To retrieve information about a particular dataset.
+ * This request requires an access token with the datasets:read scope.
+ *
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err, dataset)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.readDataset('dataset-id', function(err, dataset) {
+ *   console.log(dataset);
+ *   // {
+ *   //   "owner": {account},
+ *   //   "id": "dataset-id",
+ *   //   "name": {dataset name},
+ *   //   "description": {dataset description},
+ *   //   "created": {timestamp},
+ *   //   "modified": {timestamp}
+ *   // }
+ * });
+ */
+Datasets.prototype.readDataset = function(dataset, callback) {
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_DATASET,
+    params: {
+      owner: this.owner,
+      dataset: dataset
+    },
+    callback: callback
+  });
+};
+
+/**
+ * To make updates to a particular dataset's properties.
+ * This request requires an access token with the datasets:write scope.
+ *
+ * @param {string} dataset the id for an existing dataset
+ * @param {object} [options] an object defining updates to the dataset's properties
+ * @param {string} [options.name] the updated dataset's name
+ * @param {string} [options.description] the updated dataset's description
+ * @param {Function} callback called with (err, dataset)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * var options = { name: 'foo' };
+ * client.updateDataset('dataset-id', options, function(err, dataset) {
+ *   console.log(dataset);
+ *   // {
+ *   //   "owner": {account},
+ *   //   "id": "dataset-id",
+ *   //   "name": "foo",
+ *   //   "description": {dataset description},
+ *   //   "created": {timestamp},
+ *   //   "modified": {timestamp}
+ *   // }
+ * });
+ */
+Datasets.prototype.updateDataset = function(dataset, options, callback) {
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(!!options.name || !!options.description, 'options must include a name or a description');
+
+  this.client({
+    path: constants.API_DATASET_DATASET,
+    params: {
+      owner: this.owner,
+      dataset: dataset
+    },
+    method: 'patch',
+    entity: options,
+    callback: callback
+  });
+};
+
+/**
+ * To delete a particular dataset.
+ * This request requires an access token with the datasets:write scope.
+ *
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.deleteDataset('dataset-id', function(err) {
+ *   if (!err) console.log('deleted!');
+ * });
+ */
+Datasets.prototype.deleteDataset = function(dataset, callback) {
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_DATASET,
+    params: {
+      owner: this.owner,
+      dataset: dataset
+    },
+    method: 'delete',
+    callback: callback
+  });
+};
+
+/**
+ * Retrive a list of the features in a particular dataset. The response body will be a GeoJSON FeatureCollection.
+ * This request requires an access token with the datasets:read scope.
+ *
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err, collection)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.listFeatures('dataset-id', function(err, collection) {
+ *   console.log(collection);
+ *   {
+ *     "type": "FeatureCollection",
+ *     "features": [
+ *       {
+ *         "id": {feature id},
+ *         "type": "Feature",
+ *         "properties": {feature properties}
+ *         "geometry": {feature geometry}
+ *       },
+ *       {
+ *         "id": {feature id},
+ *         "type": "Feature",
+ *         "properties": {feature properties}
+ *         "geometry": {feature geometry}
+ *       }
+ *     ]
+ *   }
+ * });
+ */
+Datasets.prototype.listFeatures = function(dataset, callback) {
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_FEATURES,
+    params: {
+      owner: this.owner,
+      dataset: dataset
+    },
+    callback: callback
+  });
+};
+
+/**
+ * Insert a feature into a dataset. This can be a new feature, or overwrite an existing one.
+ * If overwriting an existing feature, make sure that the feature's `id` property correctly identifies
+ * the feature you wish to overwrite.
+ * For new features, specifying an `id` is optional. If you do not specify an `id`, one will be assigned
+ * and returned as part of the response.
+ * This request requires an access token with the datasets:write scope.
+ * There are a number of limits to consider when making this request:
+ *   - a single feature cannot be larger than 500 KB
+ *   - the dataset must not exceed 2000 total features
+ *   - the dataset must not exceed a total of 5 MB
+ *
+ * @param {object} feature the feature to insert. Must be a valid GeoJSON feature per http://geojson.org/geojson-spec.html#feature-objects
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err, feature)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * // Insert a brand new feature without an id
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * var feature = {
+ *   "type": "Feature",
+ *   "properties": {
+ *     "name": "Null Island"
+ *   },
+ *   "geometry": {
+ *     "type": "Point",
+ *     "coordinates": [0, 0]
+ *   }
+ * };
+ * client.insertFeature(feature, 'dataset-id', function(err, feature) {
+ *   console.log(feature);
+ *   // {
+ *   //   "id": {feature id},
+ *   //   "type": "Feature",
+ *   //   "properties": {
+ *   //     "name": "Null Island"
+ *   //   },
+ *   //   "geometry": {
+ *   //     "type": "Point",
+ *   //     "coordinates": [0, 0]
+ *   //   }
+ *   // }
+ * });
+ * @example
+ * // Insert a brand new feature with an id, or overwrite an existing feature at that id
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * var feature = {
+ *   "id": "feature-id",
+ *   "type": "Feature",
+ *   "properties": {
+ *     "name": "Null Island"
+ *   },
+ *   "geometry": {
+ *     "type": "Point",
+ *     "coordinates": [0, 0]
+ *   }
+ * };
+ * client.insertFeature(feature, 'dataset-id', function(err, feature) {
+ *   console.log(feature);
+ *   // {
+ *   //   "id": "feature-id",
+ *   //   "type": "Feature",
+ *   //   "properties": {
+ *   //     "name": "Null Island"
+ *   //   },
+ *   //   "geometry": {
+ *   //     "type": "Point",
+ *   //     "coordinates": [0, 0]
+ *   //   }
+ *   // }
+ * });
+ */
+Datasets.prototype.insertFeature = function(feature, dataset, callback) {
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(geojsonhint.hint(feature).length === 0, 'feature must be valid GeoJSON');
+
+  var id = feature.id || hat();
+  assert(typeof id === 'string', 'The GeoJSON feature\'s id must be a string');
+
+  this.client({
+    path: constants.API_DATASET_FEATURE,
+    params: {
+      owner: this.owner,
+      dataset: dataset,
+      id: id
+    },
+    method: 'put',
+    entity: feature,
+    callback: callback
+  });
+};
+
+/**
+ * Read an existing feature from a dataset.
+ * This request requires an access token with the datasets:read scope.
+ *
+ * @param {string} id the `id` of the feature to read
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err, feature)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.readFeature('feature-id', 'dataset-id', function(err, feature) {
+ *   console.log(feature);
+ *   // {
+ *   //   "id": "feature-id",
+ *   //   "type": "Feature",
+ *   //   "properties": {
+ *   //     "name": "Null Island"
+ *   //   },
+ *   //   "geometry": {
+ *   //     "type": "Point",
+ *   //     "coordinates": [0, 0]
+ *   //   }
+ *   // }
+ * });
+ */
+Datasets.prototype.readFeature = function(id, dataset, callback) {
+  assert(typeof id === 'string', 'id must be a string');
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_FEATURE,
+    params: {
+      owner: this.owner,
+      dataset: dataset,
+      id: id
+    },
+    callback: callback
+  });
+};
+
+/**
+ * Delete an existing feature from a dataset.
+ * This request requires an access token with the datasets:write scope.
+ *
+ * @param {string} id the `id` of the feature to read
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.deleteFeature('feature-id', 'dataset-id', function(err, feature) {
+ *   if (!err) console.log('deleted!');
+ * });
+ */
+Datasets.prototype.deleteFeature = function(id, dataset, callback) {
+  assert(typeof id === 'string', 'id must be a string');
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_DATASET_FEATURE,
+    params: {
+      owner: this.owner,
+      dataset: dataset,
+      id: id
+    },
+    method: 'delete',
+    callback: callback
+  });
+};
+
+/**
+ * Perform a batch of inserts, updates, and deletes to a dataset in a single combined request.
+ * This request requires an access token with the datasets:write scope.
+ * There are a number of limits to consider when making this request:
+ *   - you can send a total of 100 changes (sum of puts + deletes) in a single request
+ *   - any single feature cannot be larger than 500 KB
+ *   - the dataset must not exceed 2000 total features
+ *   - the dataset must not exceed a total of 5 MB
+ *
+ * @param {object} update an object describing features in insert and/or delete
+ * @param {Array<object>} [update.put] features to insert. Each feature must be a valid GeoJSON feature per http://geojson.org/geojson-spec.html#feature-objects
+ * @param {Array<string>} [update.delete] ids of features to delete
+ * @param {string} dataset the id for an existing dataset
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var MapboxClient = require('mapbox');
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * var inserts = [
+ *   {
+ *     "id": "1",
+ *     "type": "Feature",
+ *     "properties": {
+ *       "name": "Null Island"
+ *     },
+ *     "geometry": {
+ *       "type": "Point",
+ *       "coordinates": [0, 0]
+ *     }
+ *   },
+ *   {
+ *     "id": "2",
+ *     "type": "Feature",
+ *     "properties": {
+ *       "name": "Offshore from Null Island"
+ *     },
+ *     "geometry": {
+ *       "type": "Point",
+ *       "coordinates": [0.01, 0.01]
+ *     }
+ *   }
+ * ];
+ * var deletes =[
+ *   'feature-id-1',
+ *   'feature-id-2'
+ * ];
+ * client.bulkFeatureUpdate({ put: inserts, delete: deletes }, dataset, function(err, results) {
+ *  console.log(results);
+ * // {
+ * //   "put": [
+ * //     {
+ * //       "id": {feature-id},
+ * //       "type": "Feature",
+ * //       "properties": {
+ * //         "name": "Null Island"
+ * //       },
+ * //       "geometry": {
+ * //         "type": "Point",
+ * //         "coordinates": [0, 0]
+ * //       }
+ * //     },
+ * //     {
+ * //       "id": {feature-id},
+ * //       "type": "Feature",
+ * //       "properties": {
+ * //         "name": "Offshore from Null Island"
+ * //       },
+ * //       "geometry": {
+ * //         "type": "Point",
+ * //         "coordinates": [0.01, 0.01]
+ * //       }
+ * //     }
+ * //   ],
+ * //   "delete": [
+ * //     "feature-id-1",
+ * //     "feature-id-2"
+ * //   ]
+ * // }
+ * });
+ */
+Datasets.prototype.bulkFeatureUpdate = function(update, dataset, callback) {
+  assert(typeof update === 'object', 'update must be an object');
+  assert(typeof dataset === 'string', 'dataset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var inserts = update.put || [];
+  var deletes = update.delete || [];
+
+  assert(
+    geojsonhint.hint({type: 'FeatureCollection', features: inserts}).length === 0,
+    'update.put must be an array of valid GeoJSON features'
+  );
+  assert(
+    inserts.every(function(feature) { return feature.id; }),
+    'inserted GeoJSON features must include ids'
+  );
+
+  assert(
+    deletes.every(function(id) { return typeof id === 'string'; }),
+    'update.delete must be an array of strings'
+  );
+
+  this.client({
+    path: constants.API_DATASET_FEATURES,
+    params: {
+      owner: this.owner,
+      dataset: dataset
+    },
+    method: 'post',
+    entity: { put: inserts, delete: deletes },
+    callback: callback
+  });
+};
+
+},{"../constants":16,"../make_service":19,"assert":7,"geojsonhint/object":29,"hat":30}],22:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  formatPoints = require('../format_points'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var MapboxDirections = makeService('MapboxDirections');
+
+/**
+ * Find directions from A to B, or between any number of locations.
+ * Consult the [Mapbox Directions API](https://www.mapbox.com/developers/api/directions/)
+ * for more documentation.
+ *
+ * @param {Array<Object>} waypoints an array of objects with `latitude`
+ * and `longitude` properties that represent waypoints in order. Up to
+ * 25 waypoints can be specified.
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {string} [options.profile=mapbox.driving] the directions
+ * profile, which determines how to prioritize different routes.
+ * Options are `'mapbox.driving'`, which assumes transportation via an
+ * automobile and will use highways, `'mapbox.walking'`, which avoids
+ * streets without sidewalks, and `'mapbox.cycling'`, which prefers streets
+ * with bicycle lanes and lower speed limits for transportation via
+ * bicycle.
+ * @param {string} [options.alternatives=true] whether to generate
+ * alternative routes along with the preferred route.
+ * @param {string} [options.instructions=text] format for turn-by-turn
+ * instructions along the route.
+ * @param {string} [options.geometry=geojson] format for the returned
+ * route. Options are `'geojson'`, `'polyline'`, or `false`: `polyline`
+ * yields more compact responses which can be decoded on the client side.
+ * [GeoJSON](http://geojson.org/), the default, is compatible with libraries
+ * like [Mapbox GL](https://www.mapbox.com/mapbox-gl/),
+ * Leaflet and [Mapbox.js](https://www.mapbox.com/mapbox.js/). `false`
+ * omits the geometry entirely and only returns instructions.
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @memberof MapboxClient
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.getDirections(
+ *   [
+ *     { latitude: 33.6, longitude: -95.4431 },
+ *     { latitude: 33.2, longitude: -95.4431 } ],
+ *   function(err, res) {
+ *   // res is a document with directions
+ * });
+ *
+ * // With options
+ * mapboxClient.getDirections([
+ *   { latitude: 33.6875431, longitude: -95.4431142 },
+ *   { latitude: 33.6875431, longitude: -95.4831142 }
+ * ], {
+ *   profile: 'mapbox.walking',
+ *   instructions: 'html',
+ *   alternatives: false,
+ *   geometry: 'polyline'
+ * }, function(err, results) {
+ *   console.log(results.origin);
+ * });
+ */
+MapboxDirections.prototype.getDirections = function(waypoints, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(Array.isArray(waypoints), 'waypoints must be an array');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var encodedWaypoints = formatPoints(waypoints);
+
+  var profile = 'mapbox.driving',
+    alternatives = true,
+    steps = true,
+    geometry = 'geojson',
+    instructions = 'text';
+
+  if (options.profile) {
+    assert(typeof options.profile === 'string', 'profile option must be string');
+    profile = options.profile;
+  }
+
+  if (typeof options.alternatives !== 'undefined') {
+    assert(typeof options.alternatives === 'boolean', 'alternatives option must be boolean');
+    alternatives = options.alternatives;
+  }
+
+  if (typeof options.steps !== 'undefined') {
+    assert(typeof options.steps === 'boolean', 'steps option must be boolean');
+    steps = options.steps;
+  }
+
+  if (options.geometry) {
+    assert(typeof options.geometry === 'string', 'geometry option must be string');
+    geometry = options.geometry;
+  }
+
+  if (options.instructions) {
+    assert(typeof options.instructions === 'string', 'instructions option must be string');
+    instructions = options.instructions;
+  }
+
+  this.client({
+    path: constants.API_DIRECTIONS,
+    params: {
+      encodedWaypoints: encodedWaypoints,
+      profile: profile,
+      instructions: instructions,
+      geometry: geometry,
+      alternatives: alternatives,
+      steps: steps
+    },
+    callback: callback
+  });
+};
+
+module.exports = MapboxDirections;
+
+},{"../constants":16,"../format_points":17,"../make_service":19,"assert":7}],23:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var MapboxDistance = makeService('MapboxDistance');
+
+/**
+ * Compute a table of travel-time estimates between a set of waypoints.
+ * Consult the [Mapbox Distance API](https://www.mapbox.com/developers/api/distance/)
+ * for more documentation.
+ *
+ * @param {Array<Array<number>>} waypoints an array of coordinate pairs
+ * in [longitude, latitude] order. Up to
+ * 100 waypoints can be specified.
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {string} [options.profile=driving] the directions
+ * profile, which determines how to prioritize different routes.
+ * Options are `'driving'`, which assumes transportation via an
+ * automobile and will use highways, `'walking'`, which avoids
+ * streets without sidewalks, and `'cycling'`, which prefers streets
+ * with bicycle lanes and lower speed limits for transportation via
+ * bicycle.
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @memberof MapboxClient
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * // With options
+ * mapboxClient.getDistances([
+ *   [-95.4431142, 33.6875431],
+ *   [-95.0431142, 33.6875431],
+ *   [-95.0431142, 33.0875431],
+ *   [-95.0431142, 33.0175431],
+ *   [-95.4831142, 33.6875431]
+ * ], {
+ *   profile: 'walking'
+ * }, function(err, results) {
+ *   console.log(results);
+ * });
+ *
+ * // Results is an object like:
+ * { durations:
+ *   [ [ 0, 1196, 3977, 3415, 5196 ],
+ *     [ 1207, 0, 3775, 3213, 4993 ],
+ *     [ 3976, 3774, 0, 2650, 2579 ],
+ *     [ 3415, 3212, 2650, 0, 3869 ],
+ *     [ 5208, 5006, 2579, 3882, 0 ] ] }
+ *
+ * // If the coordinates include an un-routable place, then
+ * // the table may contain 'null' values to indicate this, like
+ * { durations:
+ *   [ [ 0, 11642, 57965, null, 72782 ],
+ *     [ 11642, 0, 56394, null, 69918 ],
+ *     [ 57965, 56394, 0, null, 19284 ],
+ *     [ null, null, null, 0, null ],
+ *     [ 72782, 69918, 19284, null, 0 ] ] }
+ */
+MapboxDistance.prototype.getDistances = function(waypoints, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(Array.isArray(waypoints), 'waypoints must be an array');
+
+  var profile = 'driving';
+
+  if (options.profile) {
+    assert(typeof options.profile === 'string', 'profile option must be string');
+    profile = options.profile;
+  }
+
+  this.client({
+    path: constants.API_DISTANCE,
+    params: {
+      profile: profile
+    },
+    entity: {
+      coordinates: waypoints
+    },
+    method: 'post',
+    callback: callback
+  });
+};
+
+module.exports = MapboxDistance;
+
+},{"../constants":16,"../make_service":19,"assert":7}],24:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var MapboxGeocoder = makeService('MapboxGeocoder');
+
+var REVERSE_GEOCODER_PRECISION = 5;
+var FORWARD_GEOCODER_PROXIMITY_PRECISION = 3;
+
+/**
+ * Search for a location with a string, using the
+ * [Mapbox Geocoding API](https://www.mapbox.com/developers/api/geocoding/).
+ *
+ * @param {string} query desired location
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {Object} options.proximity a proximity argument: this is
+ * a geographical point given as an object with latitude and longitude
+ * properties. Search results closer to this point will be given
+ * higher priority.
+ * @param {string} [options.dataset=mapbox.places] the desired data to be
+ * geocoded against. The default, mapbox.places, does not permit unlimited
+ * caching. `mapbox.places-permanent` is available on request and does
+ * permit permanent caching.
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @memberof MapboxClient
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.geocodeForward('Paris, France', function(err, res) {
+ *   // res is a GeoJSON document with geocoding matches
+ * });
+ * // using the proximity option to weight results closer to texas
+ * mapboxClient.geocodeForward('Paris, France', {
+ *   proximity: { latitude: 33.6875431, longitude: -95.4431142 }
+ * }, function(err, res) {
+ *   // res is a GeoJSON document with geocoding matches
+ * });
+ */
+MapboxGeocoder.prototype.geocodeForward = function(query, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(typeof query === 'string', 'query must be a string');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var queryOptions = {
+    query: query,
+    dataset: 'mapbox.places'
+  };
+
+  var precision = FORWARD_GEOCODER_PROXIMITY_PRECISION;
+  if (options.precision) {
+    assert(typeof options.precision === 'number', 'precision option must be number');
+    precision = options.precision;
+  }
+
+  if (options.proximity) {
+    assert(typeof options.proximity.latitude === 'number' &&
+      typeof options.proximity.longitude === 'number',
+      'proximity must be an object with numeric latitude & longitude properties');
+    queryOptions.proximity = roundTo(options.proximity.longitude, precision) + ',' + roundTo(options.proximity.latitude, precision);
+  }
+
+  if (options.dataset) {
+    assert(typeof options.dataset === 'string', 'dataset option must be string');
+    queryOptions.dataset = options.dataset;
+  }
+
+  this.client({
+    path: constants.API_GEOCODER_FORWARD,
+    params: queryOptions,
+    callback: callback
+  });
+};
+
+/**
+ * Given a location, determine what geographical features are located
+ * there. This uses the [Mapbox Geocoding API](https://www.mapbox.com/developers/api/geocoding/).
+ *
+ * @param {Object} location the geographical point to search
+ * @param {number} location.latitude decimal degrees latitude, in range -90 to 90
+ * @param {number} location.longitude decimal degrees longitude, in range -180 to 180
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {string} [options.dataset=mapbox.places] the desired data to be
+ * geocoded against. The default, mapbox.places, does not permit unlimited
+ * caching. `mapbox.places-permanent` is available on request and does
+ * permit permanent caching.
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxGeocoder('ACCESSTOKEN');
+ * mapboxClient.geocodeReverse(
+ *   { latitude: 33.6875431, longitude: -95.4431142 },
+ *   function(err, res) {
+ *   // res is a GeoJSON document with geocoding matches
+ * });
+ */
+MapboxGeocoder.prototype.geocodeReverse = function(location, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(typeof location === 'object', 'location must be an object');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  assert(typeof location.latitude === 'number' &&
+    typeof location.longitude === 'number',
+    'location must be an object with numeric latitude & longitude properties');
+
+  var dataset = 'mapbox.places';
+  if (options.dataset) {
+    assert(typeof options.dataset === 'string', 'dataset option must be string');
+    dataset = options.dataset;
+  }
+
+  var precision = REVERSE_GEOCODER_PRECISION;
+  if (options.precision) {
+    assert(typeof options.precision === 'number', 'precision option must be number');
+    precision = options.precision;
+  }
+
+  this.client({
+    path: constants.API_GEOCODER_REVERSE,
+    params: {
+      longitude: roundTo(location.longitude, precision),
+      latitude: roundTo(location.latitude, precision),
+      dataset: dataset
+    },
+    callback: callback
+  });
+};
+
+function roundTo(value, places) {
+  var mult = Math.pow(10, places);
+  return Math.round(value * mult) / mult;
+}
+
+module.exports = MapboxGeocoder;
+
+},{"../constants":16,"../make_service":19,"assert":7}],25:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  geojsonhint = require('geojsonhint/object'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var MapboxMatching = makeService('MapboxMatching');
+
+/**
+ * Snap recorded location traces to roads and paths from OpenStreetMap.
+ * Consult the [Map Matching API](https://www.mapbox.com/developers/api/map-matching/)
+ * for more documentation.
+ *
+ * @param {Object} trace a single [GeoJSON](http://geojson.org/)
+ * Feature with a LineString geometry, containing up to 100 positions.
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {string} [options.profile=mapbox.driving] the directions
+ * profile, which determines how to prioritize different routes.
+ * Options are `'mapbox.driving'`, which assumes transportation via an
+ * automobile and will use highways, `'mapbox.walking'`, which avoids
+ * streets without sidewalks, and `'mapbox.cycling'`, which prefers streets
+ * with bicycle lanes and lower speed limits for transportation via
+ * bicycle.
+ * @param {string} [options.geometry=geojson] format for the returned
+ * route. Options are `'geojson'`, `'polyline'`, or `false`: `polyline`
+ * yields more compact responses which can be decoded on the client side.
+ * [GeoJSON](http://geojson.org/), the default, is compatible with libraries
+ * like [Mapbox GL](https://www.mapbox.com/mapbox-gl/),
+ * Leaflet and [Mapbox.js](https://www.mapbox.com/mapbox.js/). `false`
+ * omits the geometry entirely and only returns matched points.
+ * @param {number} [options.gps_precision=4] An integer in meters indicating
+ * the assumed precision of the used tracking device. Use higher
+ * numbers (5-10) for noisy traces and lower numbers (1-3) for clean
+ * traces. The default value is 4.
+ * @param {Function} callback called with (err, results)
+ * @returns {undefined} nothing, calls callback
+ * @memberof MapboxClient
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.matching({
+ *   "type": "Feature",
+ *   "properties": {
+ *     "coordTimes": [
+ *       "2015-04-21T06:00:00Z",
+ *       "2015-04-21T06:00:05Z",
+ *       "2015-04-21T06:00:10Z",
+ *       "2015-04-21T06:00:15Z",
+ *       "2015-04-21T06:00:20Z"
+ *     ]
+ *     },
+ *   "geometry": {
+ *     "type": "LineString",
+ *     "coordinates": [
+ *       [ 13.418946862220764, 52.50055852688439 ],
+ *       [ 13.419011235237122, 52.50113000479732 ],
+ *       [ 13.419756889343262, 52.50171780290061 ],
+ *       [ 13.419885635375975, 52.50237416816131 ],
+ *       [ 13.420631289482117, 52.50294888790448 ]
+ *     ]
+ *   }
+ * },
+ *   function(err, res) {
+ *   // res is a document with directions
+ * });
+ */
+MapboxMatching.prototype.matching = function(trace, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(geojsonhint.hint(trace).length === 0, 'trace must be valid GeoJSON');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var profile = 'mapbox.driving',
+    gps_precision = 4,
+    geometry = 'geojson';
+
+
+  if (options.gps_precision !== undefined) {
+    assert(typeof options.gps_precision === 'number', 'gps_precision must be a number');
+    gps_precision = options.gps_precision;
+  }
+
+  if (options.profile) {
+    assert(typeof options.profile === 'string', 'profile option must be string');
+    profile = options.profile;
+  }
+
+  if (options.geometry) {
+    assert(typeof options.geometry === 'string', 'geometry option must be string');
+    geometry = options.geometry;
+  }
+
+  this.client({
+    path: constants.API_MATCHING,
+    params: {
+      profile: profile,
+      geometry: geometry,
+      gps_precision: gps_precision
+    },
+    method: 'post',
+    entity: trace,
+    callback: callback
+  });
+};
+
+module.exports = MapboxMatching;
+
+},{"../constants":16,"../make_service":19,"assert":7,"geojsonhint/object":29}],26:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  formatPoints = require('../format_points'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var MapboxSurface = makeService('MapboxSurface');
+
+/**
+ * Given a list of locations, retrieve vector tiles, find the nearest
+ * spatial features, extract their data values, and then absolute values and
+ * optionally interpolated values in-between, if the interpolate option is specified.
+ *
+ * Consult the [Surface API](https://www.mapbox.com/developers/api/surface/)
+ * for more documentation.
+ *
+ * @param {string} mapid a Mapbox mapid containing vector tiles against
+ * which we'll query
+ * @param {string} layer layer within the given `mapid` for which to pull
+ * data
+ * @param {Array<string>} fields layer within the given `mapid` for which to pull
+ * data
+ * @param {Array<Object>|string} path either an encoded polyline,
+ * provided as a string, or an array of objects with longitude and latitude
+ * properties, similar to waypoints.
+ * @param {Object} [options={}] additional options meant to tune
+ * the request
+ * @param {string} [options.geojson=false] whether to return data as a
+ * GeoJSON point
+ * @param {string} [options.zoom=maximum] zoom level at which features
+ * are queried
+ * @param {boolean} [options.interpolate=true] Whether to interpolate
+ * between matches in the feature collection.
+ * @param {Function} callback called with (err, results)
+ * @memberof MapboxClient
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ */
+MapboxSurface.prototype.surface = function(mapid, layer, fields, path, options, callback) {
+
+  // permit the options argument to be omitted
+  if (callback === undefined && typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+
+  // typecheck arguments
+  assert(typeof mapid === 'string', 'mapid must be a string');
+  assert(typeof layer === 'string', 'layer must be a string');
+  assert(Array.isArray(fields), 'fields must be an array of strings');
+  assert(Array.isArray(path) || typeof path === 'string', 'path must be an array of objects or a string');
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var interpolate = true,
+    geojson = false;
+
+  if (options.interpolate !== undefined) {
+    assert(typeof options.interpolate === 'boolean', 'interpolate must be a boolean');
+    interpolate = options.interpolate;
+  }
+
+  if (options.geojson !== undefined) {
+    assert(typeof options.geojson === 'boolean', 'geojson option must be boolean');
+    geojson = options.geojson;
+  }
+
+  var surfaceOptions = {
+    geojson: geojson,
+    layer: layer,
+    mapid: mapid,
+    fields: fields.join(','),
+    interpolate: interpolate
+  };
+
+  if (Array.isArray(path)) {
+    surfaceOptions.points = formatPoints(path);
+  } else {
+    surfaceOptions.encoded_polyline = path;
+  }
+
+  if (options.zoom !== undefined) {
+    assert(typeof options.zoom === 'number', 'zoom must be a number');
+    surfaceOptions.z = options.zoom;
+  }
+
+  this.client({
+    path: constants.API_SURFACE,
+    params: surfaceOptions,
+    callback: callback
+  });
+};
+
+module.exports = MapboxSurface;
+
+},{"../constants":16,"../format_points":17,"../make_service":19,"assert":7}],27:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var Tilestats = module.exports = makeService('MapboxTilestats');
+
+/**
+ * To create an empty set of tileset statistics.
+ *
+ * @private
+ * @param {String} tileset - the id for the tileset
+ * @param {Array<string>} layers - an array of layer names in the tileset
+ * @param {Function} callback called with (err, tilestats)
+ * @returns {undefined} nothing, calls callback
+ */
+Tilestats.prototype.createTilestats = function(tileset, layers, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(Array.isArray(layers), 'layers must be an array');
+  assert(layers.every(function(layer) {
+    return typeof layer === 'string';
+  }), 'layers must be an array of strings');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_STATISTICS,
+    params: {
+      owner: owner,
+      tileset: tileset
+    },
+    entity: { layers: layers },
+    method: 'post',
+    callback: callback
+  });
+};
+
+/**
+ * To delete a set of tileset statistics.
+ *
+ * @private
+ * @param {String} tileset - the id for the tileset
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ */
+Tilestats.prototype.deleteTilestats = function(tileset, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_STATISTICS,
+    params: {
+      owner: owner,
+      tileset: tileset
+    },
+    method: 'delete',
+    callback: callback
+  });
+};
+
+/**
+ * To retrieve statistics about a specific tileset.
+ *
+ * @param {String} tileset - the id for the tileset
+ * @param {Function} callback called with (err, tilestats)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.getTilestats('tileset-id', function(err, info) {
+ *   console.log(info);
+ *   // {
+ *   //   "account": {account},
+ *   //   "tilesetid": "tileset-id",
+ *   //   "layers": [
+ *   //     {
+ *   //       "account": {account},
+ *   //       "tilesetid": "tileset-id",
+ *   //       "layer": {layername},
+ *   //       "count": 10,
+ *   //       "attributes": [
+ *   //         {
+ *   //           "attribute": {attributename},
+ *   //           "min": 0,
+ *   //           "max": 10,
+ *   //           "values": [0, 10]
+ *   //         }
+ *   //       ]
+ *   //     }
+ *   //   ]
+ *   // }
+ * });
+ */
+Tilestats.prototype.getTilestats = function(tileset, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_STATISTICS,
+    params: {
+      owner: owner,
+      tileset: tileset
+    },
+    callback: callback
+  });
+};
+
+/**
+ * Add or update information about geometry types present in a tileset layer.
+ * This request may be made multiple times against a single layer, in order to
+ * update the total geometry counts across a set of parallel tileset reads.
+ *
+ * @private
+ * @param {String} tileset - the id for the tileset
+ * @param {String} layer - the name of the layer in the tileset
+ * @param {Object} geometries - an object indicating the number of features present
+ * in the layer of various geometry types.
+ * @param {Number} [geometries.point] - number of Point features
+ * @param {Number} [geometries.multipoint] - number of MultiPoint features
+ * @param {Number} [geometries.linestring] - number of LineString features
+ * @param {Number} [geometries.multilinestring] - number of MultiLineString features
+ * @param {Number} [geometries.polygon] - number of Polygon features
+ * @param {Number} [geometries.multipolygon] - number of MultiPolygon features
+ * @param {Number} [geometries.geometrycollection] - number of GeometryCollection features
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ */
+Tilestats.prototype.updateTilestatsLayer = function(tileset, layer, geometries, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(typeof layer === 'string', 'layer must be a string');
+  assert(typeof geometries === 'object', 'geometries must be an object');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_LAYER,
+    params: {
+      owner: owner,
+      tileset: tileset,
+      layer: layer
+    },
+    entity: geometries,
+    method: 'post',
+    callback: callback
+  });
+};
+
+/**
+ * To add or update statistics about the values of a particular attribute in
+ * a layer. This request may be made multiple times against a single attribute,
+ * in order to update the statistics across a set of parallel tileset reads.
+ *
+ * @private
+ * @param {String} tileset - the id for the tileset
+ * @param {String} layer - the name of the layer in the tileset
+ * @param {String} attribute - the name of the attribute in the layer
+ * @param {Object} stats - statistics about attribute values in the layer
+ * @param {Number|String} stats.min - the minimum attribute value
+ * @param {Number|String} stats.max - the maximum attribute value
+ * @param {Array<Number|String>} stats.values - an array of unique values for the attribute
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ */
+Tilestats.prototype.updateTilestatsAttribute = function(tileset, layer, attribute, stats, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(typeof layer === 'string', 'layer must be a string');
+  assert(typeof attribute === 'string', 'attribute must be a string');
+  assert(typeof stats === 'object', 'stats must be an object');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_ATTRIBUTE,
+    params: {
+      owner: owner,
+      tileset: tileset,
+      layer: layer,
+      attribute: attribute
+    },
+    entity: stats,
+    method: 'post',
+    callback: callback
+  });
+};
+
+/**
+ * To retrieve statistics about the attribute values of a particular attribute
+ * within a tileset layer.
+ *
+ * @param {String} tileset - the id for the tileset
+ * @param {String} layer - the name of the layer in the tileset
+ * @param {String} attribute - the name of the attribute in the layer
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var client = new MapboxClient('ACCESSTOKEN');
+ * client.getTilestatsAttribute('tileset-id', 'layer-name', 'attr-name', function(err, info) {
+ *   console.log(info);
+ *   // {
+ *   //   "account": {account},
+ *   //   "tilesetid": "tileset-id",
+ *   //   "layer": "layer-name",
+ *   //   "attribute": "attr-name",
+ *   //   "type": "Number",
+ *   //   "min": 0,
+ *   //   "max": 10,
+ *   //   "values": [
+ *   //     0,
+ *   //     10
+ *   //   ]
+ *   // }
+ * });
+ */
+Tilestats.prototype.getTilestatsAttribute = function(tileset, layer, attribute, callback) {
+  assert(typeof tileset === 'string', 'tileset must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+  assert(typeof layer === 'string', 'layer must be a string');
+  assert(typeof attribute === 'string', 'attribute must be a string');
+
+  var owner = tileset.split('.')[0];
+  if (owner === tileset) owner = this.owner;
+
+  this.client({
+    path: constants.API_TILESTATS_ATTRIBUTE,
+    params: {
+      owner: owner,
+      tileset: tileset,
+      layer: layer,
+      attribute: attribute
+    },
+    callback: callback
+  });
+};
+
+},{"../constants":16,"../make_service":19,"assert":7}],28:[function(require,module,exports){
+'use strict';
+
+var assert = require('assert'),
+  makeService = require('../make_service'),
+  constants = require('../constants');
+
+var Uploads = module.exports = makeService('MapboxUploads');
+
+/**
+ * Retrieve a listing of uploads for a particular account.
+ *
+ * This request requires an access token with the uploads:list scope.
+ *
+ * @param {Function} callback called with (err, uploads)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.listUploads(function(err, uploads) {
+ *   console.log(uploads);
+ *   // [
+ *   //   {
+ *   //     "complete": true,
+ *   //     "tileset": "example.mbtiles",
+ *   //     "error": null,
+ *   //     "id": "abc123",
+ *   //     "modified": "2014-11-21T19:41:10.000Z",
+ *   //     "created": "2014-11-21T19:41:10.000Z",
+ *   //     "owner": "example",
+ *   //     "progress": 1
+ *   //   },
+ *   //   {
+ *   //     "complete": false,
+ *   //     "tileset": "example.foo",
+ *   //     "error": null,
+ *   //     "id": "xyz789",
+ *   //     "modified": "2014-11-21T19:41:10.000Z",
+ *   //     "created": "2014-11-21T19:41:10.000Z",
+ *   //     "owner": "example",
+ *   //     "progress": 0
+ *   //   }
+ *   // ]
+ * });
+ */
+Uploads.prototype.listUploads = function(callback) {
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_UPLOADS,
+    params: { owner: this.owner },
+    callback: callback
+  });
+};
+
+/**
+ * Retrieve credentials that allow a new file to be staged on Amazon S3
+ * while an upload is processed. All uploads must be staged using these
+ * credentials before being uploaded to Mapbox.
+ *
+ * This request requires an access token with the uploads:write scope.
+ *
+ * @param {Function} callback called with (err, credentials)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.createUploadCredentials(function(err, credentials) {
+ *   console.log(credentials);
+ *   // {
+ *   //   "accessKeyId": "{accessKeyId}",
+ *   //   "bucket": "somebucket",
+ *   //   "key": "hij456",
+ *   //   "secretAccessKey": "{secretAccessKey}",
+ *   //   "sessionToken": "{sessionToken}",
+ *   //   "url": "{s3 url}"
+ *   // }
+ *
+ *   // Use aws-sdk to stage the file on Amazon S3
+ *   var AWS = require('aws-sdk');
+ *   var s3 = new AWS.S3({
+ *        accessKeyId: credentials.accessKeyId,
+ *        secretAccessKey: credentials.secretAccessKey,
+ *        sessionToken: credentials.sessionToken,
+ *        region: 'us-east-1'
+ *   });
+ *   s3.putObject({
+ *     Bucket: credentials.bucket,
+ *     Key: credentials.key,
+ *     Body: fs.createReadStream('/path/to/file.mbtiles')
+ *   }, function(err, resp) {
+ *   });
+ * });
+ */
+Uploads.prototype.createUploadCredentials = function(callback) {
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_UPLOAD_CREDENTIALS,
+    params: { owner: this.owner },
+    callback: callback
+  });
+};
+
+/**
+ * Create an new upload with a file previously staged on Amazon S3.
+ *
+ * This request requires an access token with the uploads:write scope.
+ *
+ * @param {Object} options an object that defines the upload's properties
+ * @param {String} options.tileset id of the tileset to create or
+ * replace. This must consist of an account id and a unique key
+ * separated by a period. Reuse of a tileset value will overwrite
+ * existing data. To avoid overwriting existing data, you must ensure
+ * that you are using unique tileset ids.
+ * @param {String} options.url https url of a file staged on Amazon S3.
+ * @param {Function} callback called with (err, upload)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * // Response from a call to createUploadCredentials
+ * var credentials = {
+ *   "accessKeyId": "{accessKeyId}",
+ *   "bucket": "somebucket",
+ *   "key": "hij456",
+ *   "secretAccessKey": "{secretAccessKey}",
+ *   "sessionToken": "{sessionToken}",
+ *   "url": "{s3 url}"
+ * };
+ * mapboxClient.createUpload({
+ *    tileset: [accountid, 'mytileset'].join('.'),
+ *    url: credentials.url
+ * }, function(err, upload) {
+ *   console.log(upload);
+ *   // {
+ *   //   "complete": false,
+ *   //   "tileset": "example.markers",
+ *   //   "error": null,
+ *   //   "id": "hij456",
+ *   //   "modified": "2014-11-21T19:41:10.000Z",
+ *   //   "created": "2014-11-21T19:41:10.000Z",
+ *   //   "owner": "example",
+ *   //   "progress": 0
+ *   // }
+ * });
+ */
+Uploads.prototype.createUpload = function(options, callback) {
+  assert(typeof options === 'object', 'options must be an object');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_UPLOADS,
+    params: { owner: this.owner },
+    entity: options,
+    callback: callback
+  });
+};
+
+/**
+ * Retrieve state of an upload.
+ *
+ * This request requires an access token with the uploads:read scope.
+ *
+ * @param {String} upload id of the upload to read
+ * @param {Function} callback called with (err, upload)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.readUpload('hij456', function(err, upload) {
+ *   console.log(upload);
+ *   // {
+ *   //   "complete": true,
+ *   //   "tileset": "example.markers",
+ *   //   "error": null,
+ *   //   "id": "hij456",
+ *   //   "modified": "2014-11-21T19:41:10.000Z",
+ *   //   "created": "2014-11-21T19:41:10.000Z",
+ *   //   "owner": "example",
+ *   //   "progress": 1
+ *   // }
+ * });
+ */
+Uploads.prototype.readUpload = function(upload, callback) {
+  assert(typeof upload === 'string', 'upload must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    path: constants.API_UPLOAD,
+    params: {
+      owner: this.owner,
+      upload: upload
+    },
+    callback: callback
+  });
+};
+
+/**
+ * Delete a completed upload. In-progress uploads cannot be deleted.
+ *
+ * This request requires an access token with the uploads:delete scope.
+ *
+ * @param {Function} callback called with (err)
+ * @returns {undefined} nothing, calls callback
+ * @example
+ * var mapboxClient = new MapboxClient('ACCESSTOKEN');
+ * mapboxClient.deleteUpload('hij456', function(err) {
+ * });
+ */
+Uploads.prototype.deleteUpload = function(upload, callback) {
+  assert(typeof upload === 'string', 'upload must be a string');
+  assert(typeof callback === 'function', 'callback must be a function');
+
+  this.client({
+    method: 'delete',
+    path: constants.API_UPLOAD,
+    params: {
+      owner: this.owner,
+      upload: upload
+    },
+    callback: callback
+  });
+};
+
+},{"../constants":16,"../make_service":19,"assert":7}],29:[function(require,module,exports){
+/**
+ * @alias geojsonhint
+ * @param {(string|object)} GeoJSON given as a string or as an object
+ * @returns {Array<Object>} an array of errors
+ */
+function hint(gj) {
+
+    var errors = [];
+
+    function root(_) {
+        if (!_.type) {
+            errors.push({
+                message: 'The type property is required and was not found',
+                line: _.__line__
+            });
+        } else if (!types[_.type]) {
+            errors.push({
+                message: 'The type ' + _.type + ' is unknown',
+                line: _.__line__
+            });
+        } else if (_) {
+            types[_.type](_);
+        }
+    }
+
+    function everyIs(_, type) {
+        // make a single exception because typeof null === 'object'
+        return _.every(function(x) { return (x !== null) && (typeof x === type); });
+    }
+
+    function requiredProperty(_, name, type) {
+        if (typeof _[name] === 'undefined') {
+            return errors.push({
+                message: '"' + name + '" property required',
+                line: _.__line__
+            });
+        } else if (type === 'array') {
+            if (!Array.isArray(_[name])) {
+                return errors.push({
+                    message: '"' + name +
+                        '" property should be an array, but is an ' +
+                        (typeof _[name]) + ' instead',
+                    line: _.__line__
+                });
+            }
+        } else if (type && typeof _[name] !== type) {
+            return errors.push({
+                message: '"' + name +
+                    '" property should be ' + (type) +
+                    ', but is an ' + (typeof _[name]) + ' instead',
+                line: _.__line__
+            });
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#feature-collection-objects
+    function FeatureCollection(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'features', 'array')) {
+            if (!everyIs(_.features, 'object')) {
+                return errors.push({
+                    message: 'Every feature must be an object',
+                    line: _.__line__
+                });
+            }
+            _.features.forEach(Feature);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#positions
+    function position(_, line) {
+        if (!Array.isArray(_)) {
+            return errors.push({
+                message: 'position should be an array, is a ' + (typeof _) +
+                    ' instead',
+                line: _.__line__ || line
+            });
+        } else {
+            if (_.length < 2) {
+                return errors.push({
+                    message: 'position must have 2 or more elements',
+                    line: _.__line__ || line
+                });
+            }
+            if (!everyIs(_, 'number')) {
+                return errors.push({
+                    message: 'each element in a position must be a number',
+                    line: _.__line__ || line
+                });
+            }
+        }
+    }
+
+    function positionArray(coords, type, depth, line) {
+        if (line === undefined && coords.__line__ !== undefined) {
+            line = coords.__line__;
+        }
+        if (depth === 0) {
+            return position(coords, line);
+        } else {
+            if (depth === 1 && type) {
+                if (type === 'LinearRing') {
+                    if (!Array.isArray(coords[coords.length - 1])) {
+                        return errors.push({
+                            message: 'a number was found where a coordinate array should have been found: this needs to be nested more deeply',
+                            line: line
+                        });
+                    }
+                    if (coords.length < 4) {
+                        errors.push({
+                            message: 'a LinearRing of coordinates needs to have four or more positions',
+                            line: line
+                        });
+                    }
+                    if (coords.length &&
+                        (coords[coords.length - 1].length !== coords[0].length ||
+                        !coords[coords.length - 1].every(function(position, index) {
+                        return coords[0][index] === position;
+                    }))) {
+                        errors.push({
+                            message: 'the first and last positions in a LinearRing of coordinates must be the same',
+                            line: line
+                        });
+                    }
+                } else if (type === 'Line' && coords.length < 2) {
+                    errors.push({
+                        message: 'a line needs to have two or more coordinates to be valid',
+                        line: line
+                    });
+                }
+            }
+            coords.forEach(function(c) {
+                positionArray(c, type, depth - 1, c.__line__ || line);
+            });
+        }
+    }
+
+    function crs(_) {
+        if (!_.crs) return;
+        if (typeof _.crs === 'object') {
+            var strErr = requiredProperty(_.crs, 'type', 'string'),
+                propErr = requiredProperty(_.crs, 'properties', 'object');
+            if (!strErr && !propErr) {
+                // http://geojson.org/geojson-spec.html#named-crs
+                if (_.crs.type === 'name') {
+                    requiredProperty(_.crs.properties, 'name', 'string');
+                } else if (_.crs.type === 'link') {
+                    requiredProperty(_.crs.properties, 'href', 'string');
+                }
+            }
+        } else {
+            errors.push({
+                message: 'the value of the crs property must be an object, not a ' + (typeof _.crs),
+                line: _.__line__
+            });
+        }
+    }
+
+    function bbox(_) {
+        if (!_.bbox) { return; }
+        if (Array.isArray(_.bbox)) {
+            if (!everyIs(_.bbox, 'number')) {
+                return errors.push({
+                    message: 'each element in a bbox property must be a number',
+                    line: _.bbox.__line__
+                });
+            }
+        } else {
+            errors.push({
+                message: 'bbox property must be an array of numbers, but is a ' + (typeof _.bbox),
+                line: _.__line__
+            });
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#point
+    function Point(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            position(_.coordinates);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#polygon
+    function Polygon(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            positionArray(_.coordinates, 'LinearRing', 2);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#multipolygon
+    function MultiPolygon(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            positionArray(_.coordinates, 'LinearRing', 3);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#linestring
+    function LineString(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            positionArray(_.coordinates, 'Line', 1);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#multilinestring
+    function MultiLineString(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            positionArray(_.coordinates, 'Line', 2);
+        }
+    }
+
+    // http://geojson.org/geojson-spec.html#multipoint
+    function MultiPoint(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'coordinates', 'array')) {
+            positionArray(_.coordinates, '', 1);
+        }
+    }
+
+    function GeometryCollection(_) {
+        crs(_);
+        bbox(_);
+        if (!requiredProperty(_, 'geometries', 'array')) {
+            _.geometries.forEach(function(geometry) {
+                if (geometry) root(geometry);
+            });
+        }
+    }
+
+    function Feature(_) {
+        crs(_);
+        bbox(_);
+        // https://github.com/geojson/draft-geojson/blob/master/middle.mkd#feature-object
+        if (_.id !== undefined &&
+            typeof _.id !== 'string' &&
+            typeof _.id !== 'number') {
+            errors.push({
+                message: 'Feature "id" property must have a string or number value',
+                line: _.__line__
+            });
+        }
+        if (_.type !== 'Feature') {
+            errors.push({
+                message: 'GeoJSON features must have a type=feature property',
+                line: _.__line__
+            });
+        }
+        requiredProperty(_, 'properties', 'object');
+        if (!requiredProperty(_, 'geometry', 'object')) {
+            // http://geojson.org/geojson-spec.html#feature-objects
+            // tolerate null geometry
+            if (_.geometry) root(_.geometry);
+        }
+    }
+
+    var types = {
+        Point: Point,
+        Feature: Feature,
+        MultiPoint: MultiPoint,
+        LineString: LineString,
+        MultiLineString: MultiLineString,
+        FeatureCollection: FeatureCollection,
+        GeometryCollection: GeometryCollection,
+        Polygon: Polygon,
+        MultiPolygon: MultiPolygon
+    };
+
+    if (typeof gj !== 'object' ||
+        gj === null ||
+        gj === undefined) {
+        errors.push({
+            message: 'The root of a GeoJSON object must be an object.',
+            line: 0
+        });
+        return errors;
+    }
+
+    root(gj);
+
+    errors.forEach(function(err) {
+        if (err.hasOwnProperty('line') && err.line === undefined) {
+            delete err.line;
+        }
+    });
+
+    return errors;
+}
+
+module.exports.hint = hint;
+
+},{}],30:[function(require,module,exports){
+var hat = module.exports = function (bits, base) {
+    if (!base) base = 16;
+    if (bits === undefined) bits = 128;
+    if (bits <= 0) return '0';
+    
+    var digits = Math.log(Math.pow(2, bits)) / Math.log(base);
+    for (var i = 2; digits === Infinity; i *= 2) {
+        digits = Math.log(Math.pow(2, bits / i)) / Math.log(base) * i;
+    }
+    
+    var rem = digits - Math.floor(digits);
+    
+    var res = '';
+    
+    for (var i = 0; i < Math.floor(digits); i++) {
+        var x = Math.floor(Math.random() * base).toString(base);
+        res = x + res;
+    }
+    
+    if (rem) {
+        var b = Math.pow(base, rem);
+        var x = Math.floor(Math.random() * b).toString(base);
+        res = x + res;
+    }
+    
+    var parsed = parseInt(res, base);
+    if (parsed !== Infinity && parsed >= Math.pow(2, bits)) {
+        return hat(bits, base)
+    }
+    else return res;
+};
+
+hat.rack = function (bits, base, expandBy) {
+    var fn = function (data) {
+        var iters = 0;
+        do {
+            if (iters ++ > 10) {
+                if (expandBy) bits += expandBy;
+                else throw new Error('too many ID collisions, use more bits')
+            }
+            
+            var id = hat(bits, base);
+        } while (Object.hasOwnProperty.call(hats, id));
+        
+        hats[id] = data;
+        return id;
+    };
+    var hats = fn.hats = {};
+    
+    fn.get = function (id) {
+        return fn.hats[id];
+    };
+    
+    fn.set = function (id, value) {
+        fn.hats[id] = value;
+        return fn;
+    };
+    
+    fn.bits = bits || 128;
+    fn.base = base || 16;
+    return fn;
+};
+
+},{}],31:[function(require,module,exports){
+/*
+ * Copyright 2012-2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define, location) {
+	'use strict';
+
+	var undef;
+
+	define(function (require) {
+
+		var mixin, origin, urlRE, absoluteUrlRE, fullyQualifiedUrlRE;
+
+		mixin = require('./util/mixin');
+
+		urlRE = /([a-z][a-z0-9\+\-\.]*:)\/\/([^@]+@)?(([^:\/]+)(:([0-9]+))?)?(\/[^?#]*)?(\?[^#]*)?(#\S*)?/i;
+		absoluteUrlRE = /^([a-z][a-z0-9\-\+\.]*:\/\/|\/)/i;
+		fullyQualifiedUrlRE = /([a-z][a-z0-9\+\-\.]*:)\/\/([^@]+@)?(([^:\/]+)(:([0-9]+))?)?\//i;
+
+		/**
+		 * Apply params to the template to create a URL.
+		 *
+		 * Parameters that are not applied directly to the template, are appended
+		 * to the URL as query string parameters.
+		 *
+		 * @param {string} template the URI template
+		 * @param {Object} params parameters to apply to the template
+		 * @return {string} the resulting URL
+		 */
+		function buildUrl(template, params) {
+			// internal builder to convert template with params.
+			var url, name, queryStringParams, re;
+
+			url = template;
+			queryStringParams = {};
+
+			if (params) {
+				for (name in params) {
+					/*jshint forin:false */
+					re = new RegExp('\\{' + name + '\\}');
+					if (re.test(url)) {
+						url = url.replace(re, encodeURIComponent(params[name]), 'g');
+					}
+					else {
+						queryStringParams[name] = params[name];
+					}
+				}
+				for (name in queryStringParams) {
+					url += url.indexOf('?') === -1 ? '?' : '&';
+					url += encodeURIComponent(name);
+					if (queryStringParams[name] !== null && queryStringParams[name] !== undefined) {
+						url += '=';
+						url += encodeURIComponent(queryStringParams[name]);
+					}
+				}
+			}
+			return url;
+		}
+
+		function startsWith(str, test) {
+			return str.indexOf(test) === 0;
+		}
+
+		/**
+		 * Create a new URL Builder
+		 *
+		 * @param {string|UrlBuilder} template the base template to build from, may be another UrlBuilder
+		 * @param {Object} [params] base parameters
+		 * @constructor
+		 */
+		function UrlBuilder(template, params) {
+			if (!(this instanceof UrlBuilder)) {
+				// invoke as a constructor
+				return new UrlBuilder(template, params);
+			}
+
+			if (template instanceof UrlBuilder) {
+				this._template = template.template;
+				this._params = mixin({}, this._params, params);
+			}
+			else {
+				this._template = (template || '').toString();
+				this._params = params || {};
+			}
+		}
+
+		UrlBuilder.prototype = {
+
+			/**
+			 * Create a new UrlBuilder instance that extends the current builder.
+			 * The current builder is unmodified.
+			 *
+			 * @param {string} [template] URL template to append to the current template
+			 * @param {Object} [params] params to combine with current params.  New params override existing params
+			 * @return {UrlBuilder} the new builder
+			 */
+			append: function (template,  params) {
+				// TODO consider query strings and fragments
+				return new UrlBuilder(this._template + template, mixin({}, this._params, params));
+			},
+
+			/**
+			 * Create a new UrlBuilder with a fully qualified URL based on the
+			 * window's location or base href and the current templates relative URL.
+			 *
+			 * Path variables are preserved.
+			 *
+			 * *Browser only*
+			 *
+			 * @return {UrlBuilder} the fully qualified URL template
+			 */
+			fullyQualify: function () {
+				if (!location) { return this; }
+				if (this.isFullyQualified()) { return this; }
+
+				var template = this._template;
+
+				if (startsWith(template, '//')) {
+					template = origin.protocol + template;
+				}
+				else if (startsWith(template, '/')) {
+					template = origin.origin + template;
+				}
+				else if (!this.isAbsolute()) {
+					template = origin.origin + origin.pathname.substring(0, origin.pathname.lastIndexOf('/') + 1);
+				}
+
+				if (template.indexOf('/', 8) === -1) {
+					// default the pathname to '/'
+					template = template + '/';
+				}
+
+				return new UrlBuilder(template, this._params);
+			},
+
+			/**
+			 * True if the URL is absolute
+			 *
+			 * @return {boolean}
+			 */
+			isAbsolute: function () {
+				return absoluteUrlRE.test(this.build());
+			},
+
+			/**
+			 * True if the URL is fully qualified
+			 *
+			 * @return {boolean}
+			 */
+			isFullyQualified: function () {
+				return fullyQualifiedUrlRE.test(this.build());
+			},
+
+			/**
+			 * True if the URL is cross origin. The protocol, host and port must not be
+			 * the same in order to be cross origin,
+			 *
+			 * @return {boolean}
+			 */
+			isCrossOrigin: function () {
+				if (!origin) {
+					return true;
+				}
+				var url = this.parts();
+				return url.protocol !== origin.protocol ||
+				       url.hostname !== origin.hostname ||
+				       url.port !== origin.port;
+			},
+
+			/**
+			 * Split a URL into its consituent parts following the naming convention of
+			 * 'window.location'. One difference is that the port will contain the
+			 * protocol default if not specified.
+			 *
+			 * @see https://developer.mozilla.org/en-US/docs/DOM/window.location
+			 *
+			 * @returns {Object} a 'window.location'-like object
+			 */
+			parts: function () {
+				/*jshint maxcomplexity:20 */
+				var url, parts;
+				url = this.fullyQualify().build().match(urlRE);
+				parts = {
+					href: url[0],
+					protocol: url[1],
+					host: url[3] || '',
+					hostname: url[4] || '',
+					port: url[6],
+					pathname: url[7] || '',
+					search: url[8] || '',
+					hash: url[9] || ''
+				};
+				parts.origin = parts.protocol + '//' + parts.host;
+				parts.port = parts.port || (parts.protocol === 'https:' ? '443' : parts.protocol === 'http:' ? '80' : '');
+				return parts;
+			},
+
+			/**
+			 * Expand the template replacing path variables with parameters
+			 *
+			 * @param {Object} [params] params to combine with current params.  New params override existing params
+			 * @return {string} the expanded URL
+			 */
+			build: function (params) {
+				return buildUrl(this._template, mixin({}, this._params, params));
+			},
+
+			/**
+			 * @see build
+			 */
+			toString: function () {
+				return this.build();
+			}
+
+		};
+
+		origin = location ? new UrlBuilder(location.href).parts() : undef;
+
+		return UrlBuilder;
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); },
+	typeof window !== 'undefined' ? window.location : void 0
+	// Boilerplate for AMD and Node
+));
+
+},{"./util/mixin":69}],32:[function(require,module,exports){
+/*
+ * Copyright 2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var rest = require('./client/default'),
+		    browser = require('./client/xhr');
+
+		rest.setPlatformDefaultClient(browser);
+
+		return rest;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"./client/default":34,"./client/xhr":35}],33:[function(require,module,exports){
+/*
+ * Copyright 2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		/**
+		 * Add common helper methods to a client impl
+		 *
+		 * @param {function} impl the client implementation
+		 * @param {Client} [target] target of this client, used when wrapping other clients
+		 * @returns {Client} the client impl with additional methods
+		 */
+		return function client(impl, target) {
+
+			if (target) {
+
+				/**
+				 * @returns {Client} the target client
+				 */
+				impl.skip = function skip() {
+					return target;
+				};
+
+			}
+
+			/**
+			 * Allow a client to easily be wrapped by an interceptor
+			 *
+			 * @param {Interceptor} interceptor the interceptor to wrap this client with
+			 * @param [config] configuration for the interceptor
+			 * @returns {Client} the newly wrapped client
+			 */
+			impl.wrap = function wrap(interceptor, config) {
+				return interceptor(impl, config);
+			};
+
+			/**
+			 * @deprecated
+			 */
+			impl.chain = function chain() {
+				if (typeof console !== 'undefined') {
+					console.log('rest.js: client.chain() is deprecated, use client.wrap() instead');
+				}
+
+				return impl.wrap.apply(this, arguments);
+			};
+
+			return impl;
+
+		};
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],34:[function(require,module,exports){
+/*
+ * Copyright 2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	var undef;
+
+	define(function (require) {
+
+		/**
+		 * Plain JS Object containing properties that represent an HTTP request.
+		 *
+		 * Depending on the capabilities of the underlying client, a request
+		 * may be cancelable. If a request may be canceled, the client will add
+		 * a canceled flag and cancel function to the request object. Canceling
+		 * the request will put the response into an error state.
+		 *
+		 * @field {string} [method='GET'] HTTP method, commonly GET, POST, PUT, DELETE or HEAD
+		 * @field {string|UrlBuilder} [path=''] path template with optional path variables
+		 * @field {Object} [params] parameters for the path template and query string
+		 * @field {Object} [headers] custom HTTP headers to send, in addition to the clients default headers
+		 * @field [entity] the HTTP entity, common for POST or PUT requests
+		 * @field {boolean} [canceled] true if the request has been canceled, set by the client
+		 * @field {Function} [cancel] cancels the request if invoked, provided by the client
+		 * @field {Client} [originator] the client that first handled this request, provided by the interceptor
+		 *
+		 * @class Request
+		 */
+
+		/**
+		 * Plain JS Object containing properties that represent an HTTP response
+		 *
+		 * @field {Object} [request] the request object as received by the root client
+		 * @field {Object} [raw] the underlying request object, like XmlHttpRequest in a browser
+		 * @field {number} [status.code] status code of the response (i.e. 200, 404)
+		 * @field {string} [status.text] status phrase of the response
+		 * @field {Object] [headers] response headers hash of normalized name, value pairs
+		 * @field [entity] the response body
+		 *
+		 * @class Response
+		 */
+
+		/**
+		 * HTTP client particularly suited for RESTful operations.
+		 *
+		 * @field {function} wrap wraps this client with a new interceptor returning the wrapped client
+		 *
+		 * @param {Request} the HTTP request
+		 * @returns {ResponsePromise<Response>} a promise the resolves to the HTTP response
+		 *
+		 * @class Client
+		 */
+
+		 /**
+		  * Extended when.js Promises/A+ promise with HTTP specific helpers
+		  *q
+		  * @method entity promise for the HTTP entity
+		  * @method status promise for the HTTP status code
+		  * @method headers promise for the HTTP response headers
+		  * @method header promise for a specific HTTP response header
+		  *
+		  * @class ResponsePromise
+		  * @extends Promise
+		  */
+
+		var client, target, platformDefault;
+
+		client = require('../client');
+
+		/**
+		 * Make a request with the default client
+		 * @param {Request} the HTTP request
+		 * @returns {Promise<Response>} a promise the resolves to the HTTP response
+		 */
+		function defaultClient() {
+			return target.apply(undef, arguments);
+		}
+
+		/**
+		 * Change the default client
+		 * @param {Client} client the new default client
+		 */
+		defaultClient.setDefaultClient = function setDefaultClient(client) {
+			target = client;
+		};
+
+		/**
+		 * Obtain a direct reference to the current default client
+		 * @returns {Client} the default client
+		 */
+		defaultClient.getDefaultClient = function getDefaultClient() {
+			return target;
+		};
+
+		/**
+		 * Reset the default client to the platform default
+		 */
+		defaultClient.resetDefaultClient = function resetDefaultClient() {
+			target = platformDefault;
+		};
+
+		/**
+		 * @private
+		 */
+		defaultClient.setPlatformDefaultClient = function setPlatformDefaultClient(client) {
+			if (platformDefault) {
+				throw new Error('Unable to redefine platformDefaultClient');
+			}
+			target = platformDefault = client;
+		};
+
+		return client(defaultClient);
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../client":33}],35:[function(require,module,exports){
+/*
+ * Copyright 2012-2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define, global) {
+	'use strict';
+
+	define(function (require) {
+
+		var when, UrlBuilder, normalizeHeaderName, responsePromise, client, headerSplitRE;
+
+		when = require('when');
+		UrlBuilder = require('../UrlBuilder');
+		normalizeHeaderName = require('../util/normalizeHeaderName');
+		responsePromise = require('../util/responsePromise');
+		client = require('../client');
+
+		// according to the spec, the line break is '\r\n', but doesn't hold true in practice
+		headerSplitRE = /[\r|\n]+/;
+
+		function parseHeaders(raw) {
+			// Note: Set-Cookie will be removed by the browser
+			var headers = {};
+
+			if (!raw) { return headers; }
+
+			raw.trim().split(headerSplitRE).forEach(function (header) {
+				var boundary, name, value;
+				boundary = header.indexOf(':');
+				name = normalizeHeaderName(header.substring(0, boundary).trim());
+				value = header.substring(boundary + 1).trim();
+				if (headers[name]) {
+					if (Array.isArray(headers[name])) {
+						// add to an existing array
+						headers[name].push(value);
+					}
+					else {
+						// convert single value to array
+						headers[name] = [headers[name], value];
+					}
+				}
+				else {
+					// new, single value
+					headers[name] = value;
+				}
+			});
+
+			return headers;
+		}
+
+		function safeMixin(target, source) {
+			Object.keys(source || {}).forEach(function (prop) {
+				// make sure the property already exists as
+				// IE 6 will blow up if we add a new prop
+				if (source.hasOwnProperty(prop) && prop in target) {
+					try {
+						target[prop] = source[prop];
+					}
+					catch (e) {
+						// ignore, expected for some properties at some points in the request lifecycle
+					}
+				}
+			});
+
+			return target;
+		}
+
+		return client(function xhr(request) {
+			return responsePromise.promise(function (resolve, reject) {
+				/*jshint maxcomplexity:20 */
+
+				var client, method, url, headers, entity, headerName, response, XMLHttpRequest;
+
+				request = typeof request === 'string' ? { path: request } : request || {};
+				response = { request: request };
+
+				if (request.canceled) {
+					response.error = 'precanceled';
+					reject(response);
+					return;
+				}
+
+				XMLHttpRequest = request.engine || global.XMLHttpRequest;
+				if (!XMLHttpRequest) {
+					reject({ request: request, error: 'xhr-not-available' });
+					return;
+				}
+
+				entity = request.entity;
+				request.method = request.method || (entity ? 'POST' : 'GET');
+				method = request.method;
+				url = new UrlBuilder(request.path || '', request.params).build();
+
+				try {
+					client = response.raw = new XMLHttpRequest();
+
+					// mixin extra request properties before and after opening the request as some properties require being set at different phases of the request
+					safeMixin(client, request.mixin);
+					client.open(method, url, true);
+					safeMixin(client, request.mixin);
+
+					headers = request.headers;
+					for (headerName in headers) {
+						/*jshint forin:false */
+						if (headerName === 'Content-Type' && headers[headerName] === 'multipart/form-data') {
+							// XMLHttpRequest generates its own Content-Type header with the
+							// appropriate multipart boundary when sending multipart/form-data.
+							continue;
+						}
+
+						client.setRequestHeader(headerName, headers[headerName]);
+					}
+
+					request.canceled = false;
+					request.cancel = function cancel() {
+						request.canceled = true;
+						client.abort();
+						reject(response);
+					};
+
+					client.onreadystatechange = function (/* e */) {
+						if (request.canceled) { return; }
+						if (client.readyState === (XMLHttpRequest.DONE || 4)) {
+							response.status = {
+								code: client.status,
+								text: client.statusText
+							};
+							response.headers = parseHeaders(client.getAllResponseHeaders());
+							response.entity = client.responseText;
+
+							if (response.status.code > 0) {
+								// check status code as readystatechange fires before error event
+								resolve(response);
+							}
+							else {
+								// give the error callback a chance to fire before resolving
+								// requests for file:// URLs do not have a status code
+								setTimeout(function () {
+									resolve(response);
+								}, 0);
+							}
+						}
+					};
+
+					try {
+						client.onerror = function (/* e */) {
+							response.error = 'loaderror';
+							reject(response);
+						};
+					}
+					catch (e) {
+						// IE 6 will not support error handling
+					}
+
+					client.send(entity);
+				}
+				catch (e) {
+					response.error = 'loaderror';
+					reject(response);
+				}
+
+			});
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); },
+	typeof window !== 'undefined' ? window : void 0
+	// Boilerplate for AMD and Node
+));
+
+},{"../UrlBuilder":31,"../client":33,"../util/normalizeHeaderName":70,"../util/responsePromise":71,"when":66}],36:[function(require,module,exports){
+/*
+ * Copyright 2012-2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var defaultClient, mixin, responsePromise, client, when;
+
+		defaultClient = require('./client/default');
+		mixin = require('./util/mixin');
+		responsePromise = require('./util/responsePromise');
+		client = require('./client');
+		when = require('when');
+
+		/**
+		 * Interceptors have the ability to intercept the request and/org response
+		 * objects.  They may augment, prune, transform or replace the
+		 * request/response as needed.  Clients may be composed by wrapping
+		 * together multiple interceptors.
+		 *
+		 * Configured interceptors are functional in nature.  Wrapping a client in
+		 * an interceptor will not affect the client, merely the data that flows in
+		 * and out of that client.  A common configuration can be created once and
+		 * shared; specialization can be created by further wrapping that client
+		 * with custom interceptors.
+		 *
+		 * @param {Client} [target] client to wrap
+		 * @param {Object} [config] configuration for the interceptor, properties will be specific to the interceptor implementation
+		 * @returns {Client} A client wrapped with the interceptor
+		 *
+		 * @class Interceptor
+		 */
+
+		function defaultInitHandler(config) {
+			return config;
+		}
+
+		function defaultRequestHandler(request /*, config, meta */) {
+			return request;
+		}
+
+		function defaultResponseHandler(response /*, config, meta */) {
+			return response;
+		}
+
+		function race(promisesOrValues) {
+			// this function is different than when.any as the first to reject also wins
+			return when.promise(function (resolve, reject) {
+				promisesOrValues.forEach(function (promiseOrValue) {
+					when(promiseOrValue, resolve, reject);
+				});
+			});
+		}
+
+		/**
+		 * Alternate return type for the request handler that allows for more complex interactions.
+		 *
+		 * @param properties.request the traditional request return object
+		 * @param {Promise} [properties.abort] promise that resolves if/when the request is aborted
+		 * @param {Client} [properties.client] override the defined client with an alternate client
+		 * @param [properties.response] response for the request, short circuit the request
+		 */
+		function ComplexRequest(properties) {
+			if (!(this instanceof ComplexRequest)) {
+				// in case users forget the 'new' don't mix into the interceptor
+				return new ComplexRequest(properties);
+			}
+			mixin(this, properties);
+		}
+
+		/**
+		 * Create a new interceptor for the provided handlers.
+		 *
+		 * @param {Function} [handlers.init] one time intialization, must return the config object
+		 * @param {Function} [handlers.request] request handler
+		 * @param {Function} [handlers.response] response handler regardless of error state
+		 * @param {Function} [handlers.success] response handler when the request is not in error
+		 * @param {Function} [handlers.error] response handler when the request is in error, may be used to 'unreject' an error state
+		 * @param {Function} [handlers.client] the client to use if otherwise not specified, defaults to platform default client
+		 *
+		 * @returns {Interceptor}
+		 */
+		function interceptor(handlers) {
+
+			var initHandler, requestHandler, successResponseHandler, errorResponseHandler;
+
+			handlers = handlers || {};
+
+			initHandler            = handlers.init    || defaultInitHandler;
+			requestHandler         = handlers.request || defaultRequestHandler;
+			successResponseHandler = handlers.success || handlers.response || defaultResponseHandler;
+			errorResponseHandler   = handlers.error   || function () {
+				// Propagate the rejection, with the result of the handler
+				return when((handlers.response || defaultResponseHandler).apply(this, arguments), when.reject, when.reject);
+			};
+
+			return function (target, config) {
+
+				if (typeof target === 'object') {
+					config = target;
+				}
+				if (typeof target !== 'function') {
+					target = handlers.client || defaultClient;
+				}
+
+				config = initHandler(config || {});
+
+				function interceptedClient(request) {
+					var context, meta;
+					context = {};
+					meta = { 'arguments': Array.prototype.slice.call(arguments), client: interceptedClient };
+					request = typeof request === 'string' ? { path: request } : request || {};
+					request.originator = request.originator || interceptedClient;
+					return responsePromise(
+						requestHandler.call(context, request, config, meta),
+						function (request) {
+							var response, abort, next;
+							next = target;
+							if (request instanceof ComplexRequest) {
+								// unpack request
+								abort = request.abort;
+								next = request.client || next;
+								response = request.response;
+								// normalize request, must be last
+								request = request.request;
+							}
+							response = response || when(request, function (request) {
+								return when(
+									next(request),
+									function (response) {
+										return successResponseHandler.call(context, response, config, meta);
+									},
+									function (response) {
+										return errorResponseHandler.call(context, response, config, meta);
+									}
+								);
+							});
+							return abort ? race([response, abort]) : response;
+						},
+						function (error) {
+							return when.reject({ request: request, error: error });
+						}
+					);
+				}
+
+				return client(interceptedClient, target);
+			};
+		}
+
+		interceptor.ComplexRequest = ComplexRequest;
+
+		return interceptor;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"./client":33,"./client/default":34,"./util/mixin":69,"./util/responsePromise":71,"when":66}],37:[function(require,module,exports){
+/*
+ * Copyright 2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var interceptor, mixinUtil, defaulter;
+
+		interceptor = require('../interceptor');
+		mixinUtil = require('../util/mixin');
+
+		defaulter = (function () {
+
+			function mixin(prop, target, defaults) {
+				if (prop in target || prop in defaults) {
+					target[prop] = mixinUtil({}, defaults[prop], target[prop]);
+				}
+			}
+
+			function copy(prop, target, defaults) {
+				if (prop in defaults && !(prop in target)) {
+					target[prop] = defaults[prop];
+				}
+			}
+
+			var mappings = {
+				method: copy,
+				path: copy,
+				params: mixin,
+				headers: mixin,
+				entity: copy,
+				mixin: mixin
+			};
+
+			return function (target, defaults) {
+				for (var prop in mappings) {
+					/*jshint forin: false */
+					mappings[prop](prop, target, defaults);
+				}
+				return target;
+			};
+
+		}());
+
+		/**
+		 * Provide default values for a request. These values will be applied to the
+		 * request if the request object does not already contain an explicit value.
+		 *
+		 * For 'params', 'headers', and 'mixin', individual values are mixed in with the
+		 * request's values. The result is a new object representiing the combined
+		 * request and config values. Neither input object is mutated.
+		 *
+		 * @param {Client} [client] client to wrap
+		 * @param {string} [config.method] the default method
+		 * @param {string} [config.path] the default path
+		 * @param {Object} [config.params] the default params, mixed with the request's existing params
+		 * @param {Object} [config.headers] the default headers, mixed with the request's existing headers
+		 * @param {Object} [config.mixin] the default "mixins" (http/https options), mixed with the request's existing "mixins"
+		 *
+		 * @returns {Client}
+		 */
+		return interceptor({
+			request: function handleRequest(request, config) {
+				return defaulter(request, config);
+			}
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../interceptor":36,"../util/mixin":69}],38:[function(require,module,exports){
+/*
+ * Copyright 2012-2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var interceptor, when;
+
+		interceptor = require('../interceptor');
+		when = require('when');
+
+		/**
+		 * Rejects the response promise based on the status code.
+		 *
+		 * Codes greater than or equal to the provided value are rejected.  Default
+		 * value 400.
+		 *
+		 * @param {Client} [client] client to wrap
+		 * @param {number} [config.code=400] code to indicate a rejection
+		 *
+		 * @returns {Client}
+		 */
+		return interceptor({
+			init: function (config) {
+				config.code = config.code || 400;
+				return config;
+			},
+			response: function (response, config) {
+				if (response.status && response.status.code >= config.code) {
+					return when.reject(response);
+				}
+				return response;
+			}
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../interceptor":36,"when":66}],39:[function(require,module,exports){
+/*
+ * Copyright 2012-2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var interceptor, mime, registry, noopConverter, when;
+
+		interceptor = require('../interceptor');
+		mime = require('../mime');
+		registry = require('../mime/registry');
+		when = require('when');
+
+		noopConverter = {
+			read: function (obj) { return obj; },
+			write: function (obj) { return obj; }
+		};
+
+		/**
+		 * MIME type support for request and response entities.  Entities are
+		 * (de)serialized using the converter for the MIME type.
+		 *
+		 * Request entities are converted using the desired converter and the
+		 * 'Accept' request header prefers this MIME.
+		 *
+		 * Response entities are converted based on the Content-Type response header.
+		 *
+		 * @param {Client} [client] client to wrap
+		 * @param {string} [config.mime='text/plain'] MIME type to encode the request
+		 *   entity
+		 * @param {string} [config.accept] Accept header for the request
+		 * @param {Client} [config.client=<request.originator>] client passed to the
+		 *   converter, defaults to the client originating the request
+		 * @param {Registry} [config.registry] MIME registry, defaults to the root
+		 *   registry
+		 * @param {boolean} [config.permissive] Allow an unkown request MIME type
+		 *
+		 * @returns {Client}
+		 */
+		return interceptor({
+			init: function (config) {
+				config.registry = config.registry || registry;
+				return config;
+			},
+			request: function (request, config) {
+				var type, headers;
+
+				headers = request.headers || (request.headers = {});
+				type = mime.parse(headers['Content-Type'] = headers['Content-Type'] || config.mime || 'text/plain');
+				headers.Accept = headers.Accept || config.accept || type.raw + ', application/json;q=0.8, text/plain;q=0.5, */*;q=0.2';
+
+				if (!('entity' in request)) {
+					return request;
+				}
+
+				return config.registry.lookup(type).otherwise(function () {
+					// failed to resolve converter
+					if (config.permissive) {
+						return noopConverter;
+					}
+					throw 'mime-unknown';
+				}).then(function (converter) {
+					var client = config.client || request.originator;
+
+					return when.attempt(converter.write, request.entity, { client: client, request: request, mime: type, registry: config.registry })
+						.otherwise(function() {
+							throw 'mime-serialization';
+						})
+						.then(function(entity) {
+							request.entity = entity;
+							return request;
+						});
+				});
+			},
+			response: function (response, config) {
+				if (!(response.headers && response.headers['Content-Type'] && response.entity)) {
+					return response;
+				}
+
+				var type = mime.parse(response.headers['Content-Type']);
+
+				return config.registry.lookup(type).otherwise(function () { return noopConverter; }).then(function (converter) {
+					var client = config.client || response.request && response.request.originator;
+
+					return when.attempt(converter.read, response.entity, { client: client, response: response, mime: type, registry: config.registry })
+						.otherwise(function (e) {
+							response.error = 'mime-deserialization';
+							response.cause = e;
+							throw response;
+						})
+						.then(function (entity) {
+							response.entity = entity;
+							return response;
+						});
+				});
+			}
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../interceptor":36,"../mime":42,"../mime/registry":43,"when":66}],40:[function(require,module,exports){
+/*
+ * Copyright 2012-2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var interceptor, UrlBuilder;
+
+		interceptor = require('../interceptor');
+		UrlBuilder = require('../UrlBuilder');
+
+		function startsWith(str, prefix) {
+			return str.indexOf(prefix) === 0;
+		}
+
+		function endsWith(str, suffix) {
+			return str.lastIndexOf(suffix) + suffix.length === str.length;
+		}
+
+		/**
+		 * Prefixes the request path with a common value.
+		 *
+		 * @param {Client} [client] client to wrap
+		 * @param {number} [config.prefix] path prefix
+		 *
+		 * @returns {Client}
+		 */
+		return interceptor({
+			request: function (request, config) {
+				var path;
+
+				if (config.prefix && !(new UrlBuilder(request.path).isFullyQualified())) {
+					path = config.prefix;
+					if (request.path) {
+						if (!endsWith(path, '/') && !startsWith(request.path, '/')) {
+							// add missing '/' between path sections
+							path += '/';
+						}
+						path += request.path;
+					}
+					request.path = path;
+				}
+
+				return request;
+			}
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../UrlBuilder":31,"../interceptor":36}],41:[function(require,module,exports){
+/*
+ * Copyright 2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var interceptor, uriTemplate, mixin;
+
+		interceptor = require('../interceptor');
+		uriTemplate = require('../util/uriTemplate');
+		mixin = require('../util/mixin');
+
+		/**
+		 * Applies request params to the path as a URI Template
+		 *
+		 * Params are removed from the request object, as they have been consumed.
+		 *
+		 * @param {Client} [client] client to wrap
+		 * @param {Object} [config.params] default param values
+		 * @param {string} [config.template] default template
+		 *
+		 * @returns {Client}
+		 */
+		return interceptor({
+			init: function (config) {
+				config.params = config.params || {};
+				config.template = config.template || '';
+				return config;
+			},
+			request: function (request, config) {
+				var template, params;
+
+				template = request.path || config.template;
+				params = mixin({}, request.params, config.params);
+
+				request.path = uriTemplate.expand(template, params);
+				delete request.params;
+
+				return request;
+			}
+		});
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../interceptor":36,"../util/mixin":69,"../util/uriTemplate":73}],42:[function(require,module,exports){
+/*
+* Copyright 2014 the original author or authors
+* @license MIT, see LICENSE.txt for details
+*
+* @author Scott Andrews
+*/
+
+(function (define) {
+	'use strict';
+
+	var undef;
+
+	define(function (/* require */) {
+
+		/**
+		 * Parse a MIME type into it's constituent parts
+		 *
+		 * @param {string} mime MIME type to parse
+		 * @return {{
+		 *   {string} raw the original MIME type
+		 *   {string} type the type and subtype
+		 *   {string} [suffix] mime suffix, including the plus, if any
+		 *   {Object} params key/value pair of attributes
+		 * }}
+		 */
+		function parse(mime) {
+			var params, type;
+
+			params = mime.split(';');
+			type = params[0].trim().split('+');
+
+			return {
+				raw: mime,
+				type: type[0],
+				suffix: type[1] ? '+' + type[1] : '',
+				params: params.slice(1).reduce(function (params, pair) {
+					pair = pair.split('=');
+					params[pair[0].trim()] = pair[1] ? pair[1].trim() : undef;
+					return params;
+				}, {})
+			};
+		}
+
+		return {
+			parse: parse
+		};
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],43:[function(require,module,exports){
+/*
+ * Copyright 2012-2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var mime, when, registry;
+
+		mime = require('../mime');
+		when = require('when');
+
+		function Registry(mimes) {
+
+			/**
+			 * Lookup the converter for a MIME type
+			 *
+			 * @param {string} type the MIME type
+			 * @return a promise for the converter
+			 */
+			this.lookup = function lookup(type) {
+				var parsed;
+
+				parsed = typeof type === 'string' ? mime.parse(type) : type;
+
+				if (mimes[parsed.raw]) {
+					return mimes[parsed.raw];
+				}
+				if (mimes[parsed.type + parsed.suffix]) {
+					return mimes[parsed.type + parsed.suffix];
+				}
+				if (mimes[parsed.type]) {
+					return mimes[parsed.type];
+				}
+				if (mimes[parsed.suffix]) {
+					return mimes[parsed.suffix];
+				}
+
+				return when.reject(new Error('Unable to locate converter for mime "' + parsed.raw + '"'));
+			};
+
+			/**
+			 * Create a late dispatched proxy to the target converter.
+			 *
+			 * Common when a converter is registered under multiple names and
+			 * should be kept in sync if updated.
+			 *
+			 * @param {string} type mime converter to dispatch to
+			 * @returns converter whose read/write methods target the desired mime converter
+			 */
+			this.delegate = function delegate(type) {
+				return {
+					read: function () {
+						var args = arguments;
+						return this.lookup(type).then(function (converter) {
+							return converter.read.apply(this, args);
+						}.bind(this));
+					}.bind(this),
+					write: function () {
+						var args = arguments;
+						return this.lookup(type).then(function (converter) {
+							return converter.write.apply(this, args);
+						}.bind(this));
+					}.bind(this)
+				};
+			};
+
+			/**
+			 * Register a custom converter for a MIME type
+			 *
+			 * @param {string} type the MIME type
+			 * @param converter the converter for the MIME type
+			 * @return a promise for the converter
+			 */
+			this.register = function register(type, converter) {
+				mimes[type] = when(converter);
+				return mimes[type];
+			};
+
+			/**
+			 * Create a child registry whoes registered converters remain local, while
+			 * able to lookup converters from its parent.
+			 *
+			 * @returns child MIME registry
+			 */
+			this.child = function child() {
+				return new Registry(Object.create(mimes));
+			};
+
+		}
+
+		registry = new Registry({});
+
+		// include provided serializers
+		registry.register('application/hal', require('./type/application/hal'));
+		registry.register('application/json', require('./type/application/json'));
+		registry.register('application/x-www-form-urlencoded', require('./type/application/x-www-form-urlencoded'));
+		registry.register('multipart/form-data', require('./type/multipart/form-data'));
+		registry.register('text/plain', require('./type/text/plain'));
+
+		registry.register('+json', registry.delegate('application/json'));
+
+		return registry;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../mime":42,"./type/application/hal":44,"./type/application/json":45,"./type/application/x-www-form-urlencoded":46,"./type/multipart/form-data":47,"./type/text/plain":48,"when":66}],44:[function(require,module,exports){
+/*
+ * Copyright 2013-2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var pathPrefix, template, find, lazyPromise, responsePromise, when;
+
+		pathPrefix = require('../../../interceptor/pathPrefix');
+		template = require('../../../interceptor/template');
+		find = require('../../../util/find');
+		lazyPromise = require('../../../util/lazyPromise');
+		responsePromise = require('../../../util/responsePromise');
+		when = require('when');
+
+		function defineProperty(obj, name, value) {
+			Object.defineProperty(obj, name, {
+				value: value,
+				configurable: true,
+				enumerable: false,
+				writeable: true
+			});
+		}
+
+		/**
+		 * Hypertext Application Language serializer
+		 *
+		 * Implemented to https://tools.ietf.org/html/draft-kelly-json-hal-06
+		 *
+		 * As the spec is still a draft, this implementation will be updated as the
+		 * spec evolves
+		 *
+		 * Objects are read as HAL indexing links and embedded objects on to the
+		 * resource. Objects are written as plain JSON.
+		 *
+		 * Embedded relationships are indexed onto the resource by the relationship
+		 * as a promise for the related resource.
+		 *
+		 * Links are indexed onto the resource as a lazy promise that will GET the
+		 * resource when a handler is first registered on the promise.
+		 *
+		 * A `requestFor` method is added to the entity to make a request for the
+		 * relationship.
+		 *
+		 * A `clientFor` method is added to the entity to get a full Client for a
+		 * relationship.
+		 *
+		 * The `_links` and `_embedded` properties on the resource are made
+		 * non-enumerable.
+		 */
+		return {
+
+			read: function (str, opts) {
+				var client, console;
+
+				opts = opts || {};
+				client = opts.client;
+				console = opts.console || console;
+
+				function deprecationWarning(relationship, deprecation) {
+					if (deprecation && console && console.warn || console.log) {
+						(console.warn || console.log).call(console, 'Relationship \'' + relationship + '\' is deprecated, see ' + deprecation);
+					}
+				}
+
+				return opts.registry.lookup(opts.mime.suffix).then(function (converter) {
+					return when(converter.read(str, opts)).then(function (root) {
+
+						find.findProperties(root, '_embedded', function (embedded, resource, name) {
+							Object.keys(embedded).forEach(function (relationship) {
+								if (relationship in resource) { return; }
+								var related = responsePromise({
+									entity: embedded[relationship]
+								});
+								defineProperty(resource, relationship, related);
+							});
+							defineProperty(resource, name, embedded);
+						});
+						find.findProperties(root, '_links', function (links, resource, name) {
+							Object.keys(links).forEach(function (relationship) {
+								var link = links[relationship];
+								if (relationship in resource) { return; }
+								defineProperty(resource, relationship, responsePromise.make(lazyPromise(function () {
+									if (link.deprecation) { deprecationWarning(relationship, link.deprecation); }
+									if (link.templated === true) {
+										return template(client)({ path: link.href });
+									}
+									return client({ path: link.href });
+								})));
+							});
+							defineProperty(resource, name, links);
+							defineProperty(resource, 'clientFor', function (relationship, clientOverride) {
+								var link = links[relationship];
+								if (!link) {
+									throw new Error('Unknown relationship: ' + relationship);
+								}
+								if (link.deprecation) { deprecationWarning(relationship, link.deprecation); }
+								if (link.templated === true) {
+									return template(
+										clientOverride || client,
+										{ template: link.href }
+									);
+								}
+								return pathPrefix(
+									clientOverride || client,
+									{ prefix: link.href }
+								);
+							});
+							defineProperty(resource, 'requestFor', function (relationship, request, clientOverride) {
+								var client = this.clientFor(relationship, clientOverride);
+								return client(request);
+							});
+						});
+
+						return root;
+					});
+				});
+
+			},
+
+			write: function (obj, opts) {
+				return opts.registry.lookup(opts.mime.suffix).then(function (converter) {
+					return converter.write(obj, opts);
+				});
+			}
+
+		};
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"../../../interceptor/pathPrefix":40,"../../../interceptor/template":41,"../../../util/find":67,"../../../util/lazyPromise":68,"../../../util/responsePromise":71,"when":66}],45:[function(require,module,exports){
+/*
+ * Copyright 2012-2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		/**
+		 * Create a new JSON converter with custom reviver/replacer.
+		 *
+		 * The extended converter must be published to a MIME registry in order
+		 * to be used. The existing converter will not be modified.
+		 *
+		 * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON
+		 *
+		 * @param {function} [reviver=undefined] custom JSON.parse reviver
+		 * @param {function|Array} [replacer=undefined] custom JSON.stringify replacer
+		 */
+		function createConverter(reviver, replacer) {
+			return {
+
+				read: function (str) {
+					return JSON.parse(str, reviver);
+				},
+
+				write: function (obj) {
+					return JSON.stringify(obj, replacer);
+				},
+
+				extend: createConverter
+
+			};
+		}
+
+		return createConverter();
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],46:[function(require,module,exports){
+/*
+ * Copyright 2012 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		var encodedSpaceRE, urlEncodedSpaceRE;
+
+		encodedSpaceRE = /%20/g;
+		urlEncodedSpaceRE = /\+/g;
+
+		function urlEncode(str) {
+			str = encodeURIComponent(str);
+			// spec says space should be encoded as '+'
+			return str.replace(encodedSpaceRE, '+');
+		}
+
+		function urlDecode(str) {
+			// spec says space should be encoded as '+'
+			str = str.replace(urlEncodedSpaceRE, ' ');
+			return decodeURIComponent(str);
+		}
+
+		function append(str, name, value) {
+			if (Array.isArray(value)) {
+				value.forEach(function (value) {
+					str = append(str, name, value);
+				});
+			}
+			else {
+				if (str.length > 0) {
+					str += '&';
+				}
+				str += urlEncode(name);
+				if (value !== undefined && value !== null) {
+					str += '=' + urlEncode(value);
+				}
+			}
+			return str;
+		}
+
+		return {
+
+			read: function (str) {
+				var obj = {};
+				str.split('&').forEach(function (entry) {
+					var pair, name, value;
+					pair = entry.split('=');
+					name = urlDecode(pair[0]);
+					if (pair.length === 2) {
+						value = urlDecode(pair[1]);
+					}
+					else {
+						value = null;
+					}
+					if (name in obj) {
+						if (!Array.isArray(obj[name])) {
+							// convert to an array, perserving currnent value
+							obj[name] = [obj[name]];
+						}
+						obj[name].push(value);
+					}
+					else {
+						obj[name] = value;
+					}
+				});
+				return obj;
+			},
+
+			write: function (obj) {
+				var str = '';
+				Object.keys(obj).forEach(function (name) {
+					str = append(str, name, obj[name]);
+				});
+				return str;
+			}
+
+		};
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],47:[function(require,module,exports){
+/*
+ * Copyright 2014 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Michael Jackson
+ */
+
+/* global FormData, File, Blob */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		function isFormElement(object) {
+			return object &&
+				object.nodeType === 1 && // Node.ELEMENT_NODE
+				object.tagName === 'FORM';
+		}
+
+		function createFormDataFromObject(object) {
+			var formData = new FormData();
+
+			var value;
+			for (var property in object) {
+				if (object.hasOwnProperty(property)) {
+					value = object[property];
+
+					if (value instanceof File) {
+						formData.append(property, value, value.name);
+					} else if (value instanceof Blob) {
+						formData.append(property, value);
+					} else {
+						formData.append(property, String(value));
+					}
+				}
+			}
+
+			return formData;
+		}
+
+		return {
+
+			write: function (object) {
+				if (typeof FormData === 'undefined') {
+					throw new Error('The multipart/form-data mime serializer requires FormData support');
+				}
+
+				// Support FormData directly.
+				if (object instanceof FormData) {
+					return object;
+				}
+
+				// Support <form> elements.
+				if (isFormElement(object)) {
+					return new FormData(object);
+				}
+
+				// Support plain objects, may contain File/Blob as value.
+				if (typeof object === 'object' && object !== null) {
+					return createFormDataFromObject(object);
+				}
+
+				throw new Error('Unable to create FormData from object ' + object);
+			}
+
+		};
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],48:[function(require,module,exports){
+/*
+ * Copyright 2012 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		return {
+
+			read: function (str) {
+				return str;
+			},
+
+			write: function (obj) {
+				return obj.toString();
+			}
+
+		};
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],49:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function (require) {
+
+	var makePromise = require('./makePromise');
+	var Scheduler = require('./Scheduler');
+	var async = require('./env').asap;
+
+	return makePromise({
+		scheduler: new Scheduler(async)
+	});
+
+});
+})(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
+
+},{"./Scheduler":50,"./env":62,"./makePromise":64}],50:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	// Credit to Twisol (https://github.com/Twisol) for suggesting
+	// this type of extensible queue + trampoline approach for next-tick conflation.
+
+	/**
+	 * Async task scheduler
+	 * @param {function} async function to schedule a single async function
+	 * @constructor
+	 */
+	function Scheduler(async) {
+		this._async = async;
+		this._running = false;
+
+		this._queue = this;
+		this._queueLen = 0;
+		this._afterQueue = {};
+		this._afterQueueLen = 0;
+
+		var self = this;
+		this.drain = function() {
+			self._drain();
+		};
+	}
+
+	/**
+	 * Enqueue a task
+	 * @param {{ run:function }} task
+	 */
+	Scheduler.prototype.enqueue = function(task) {
+		this._queue[this._queueLen++] = task;
+		this.run();
+	};
+
+	/**
+	 * Enqueue a task to run after the main task queue
+	 * @param {{ run:function }} task
+	 */
+	Scheduler.prototype.afterQueue = function(task) {
+		this._afterQueue[this._afterQueueLen++] = task;
+		this.run();
+	};
+
+	Scheduler.prototype.run = function() {
+		if (!this._running) {
+			this._running = true;
+			this._async(this.drain);
+		}
+	};
+
+	/**
+	 * Drain the handler queue entirely, and then the after queue
+	 */
+	Scheduler.prototype._drain = function() {
+		var i = 0;
+		for (; i < this._queueLen; ++i) {
+			this._queue[i].run();
+			this._queue[i] = void 0;
+		}
+
+		this._queueLen = 0;
+		this._running = false;
+
+		for (i = 0; i < this._afterQueueLen; ++i) {
+			this._afterQueue[i].run();
+			this._afterQueue[i] = void 0;
+		}
+
+		this._afterQueueLen = 0;
+	};
+
+	return Scheduler;
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],51:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	/**
+	 * Custom error type for promises rejected by promise.timeout
+	 * @param {string} message
+	 * @constructor
+	 */
+	function TimeoutError (message) {
+		Error.call(this);
+		this.message = message;
+		this.name = TimeoutError.name;
+		if (typeof Error.captureStackTrace === 'function') {
+			Error.captureStackTrace(this, TimeoutError);
+		}
+	}
+
+	TimeoutError.prototype = Object.create(Error.prototype);
+	TimeoutError.prototype.constructor = TimeoutError;
+
+	return TimeoutError;
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+},{}],52:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	makeApply.tryCatchResolve = tryCatchResolve;
+
+	return makeApply;
+
+	function makeApply(Promise, call) {
+		if(arguments.length < 2) {
+			call = tryCatchResolve;
+		}
+
+		return apply;
+
+		function apply(f, thisArg, args) {
+			var p = Promise._defer();
+			var l = args.length;
+			var params = new Array(l);
+			callAndResolve({ f:f, thisArg:thisArg, args:args, params:params, i:l-1, call:call }, p._handler);
+
+			return p;
+		}
+
+		function callAndResolve(c, h) {
+			if(c.i < 0) {
+				return call(c.f, c.thisArg, c.params, h);
+			}
+
+			var handler = Promise._handler(c.args[c.i]);
+			handler.fold(callAndResolveNext, c, void 0, h);
+		}
+
+		function callAndResolveNext(c, x, h) {
+			c.params[c.i] = x;
+			c.i -= 1;
+			callAndResolve(c, h);
+		}
+	}
+
+	function tryCatchResolve(f, thisArg, args, resolver) {
+		try {
+			resolver.resolve(f.apply(thisArg, args));
+		} catch(e) {
+			resolver.reject(e);
+		}
+	}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+
+
+},{}],53:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var state = require('../state');
+	var applier = require('../apply');
+
+	return function array(Promise) {
+
+		var applyFold = applier(Promise);
+		var toPromise = Promise.resolve;
+		var all = Promise.all;
+
+		var ar = Array.prototype.reduce;
+		var arr = Array.prototype.reduceRight;
+		var slice = Array.prototype.slice;
+
+		// Additional array combinators
+
+		Promise.any = any;
+		Promise.some = some;
+		Promise.settle = settle;
+
+		Promise.map = map;
+		Promise.filter = filter;
+		Promise.reduce = reduce;
+		Promise.reduceRight = reduceRight;
+
+		/**
+		 * When this promise fulfills with an array, do
+		 * onFulfilled.apply(void 0, array)
+		 * @param {function} onFulfilled function to apply
+		 * @returns {Promise} promise for the result of applying onFulfilled
+		 */
+		Promise.prototype.spread = function(onFulfilled) {
+			return this.then(all).then(function(array) {
+				return onFulfilled.apply(this, array);
+			});
+		};
+
+		return Promise;
+
+		/**
+		 * One-winner competitive race.
+		 * Return a promise that will fulfill when one of the promises
+		 * in the input array fulfills, or will reject when all promises
+		 * have rejected.
+		 * @param {array} promises
+		 * @returns {Promise} promise for the first fulfilled value
+		 */
+		function any(promises) {
+			var p = Promise._defer();
+			var resolver = p._handler;
+			var l = promises.length>>>0;
+
+			var pending = l;
+			var errors = [];
+
+			for (var h, x, i = 0; i < l; ++i) {
+				x = promises[i];
+				if(x === void 0 && !(i in promises)) {
+					--pending;
+					continue;
+				}
+
+				h = Promise._handler(x);
+				if(h.state() > 0) {
+					resolver.become(h);
+					Promise._visitRemaining(promises, i, h);
+					break;
+				} else {
+					h.visit(resolver, handleFulfill, handleReject);
+				}
+			}
+
+			if(pending === 0) {
+				resolver.reject(new RangeError('any(): array must not be empty'));
+			}
+
+			return p;
+
+			function handleFulfill(x) {
+				/*jshint validthis:true*/
+				errors = null;
+				this.resolve(x); // this === resolver
+			}
+
+			function handleReject(e) {
+				/*jshint validthis:true*/
+				if(this.resolved) { // this === resolver
+					return;
+				}
+
+				errors.push(e);
+				if(--pending === 0) {
+					this.reject(errors);
+				}
+			}
+		}
+
+		/**
+		 * N-winner competitive race
+		 * Return a promise that will fulfill when n input promises have
+		 * fulfilled, or will reject when it becomes impossible for n
+		 * input promises to fulfill (ie when promises.length - n + 1
+		 * have rejected)
+		 * @param {array} promises
+		 * @param {number} n
+		 * @returns {Promise} promise for the earliest n fulfillment values
+		 *
+		 * @deprecated
+		 */
+		function some(promises, n) {
+			/*jshint maxcomplexity:7*/
+			var p = Promise._defer();
+			var resolver = p._handler;
+
+			var results = [];
+			var errors = [];
+
+			var l = promises.length>>>0;
+			var nFulfill = 0;
+			var nReject;
+			var x, i; // reused in both for() loops
+
+			// First pass: count actual array items
+			for(i=0; i<l; ++i) {
+				x = promises[i];
+				if(x === void 0 && !(i in promises)) {
+					continue;
+				}
+				++nFulfill;
+			}
+
+			// Compute actual goals
+			n = Math.max(n, 0);
+			nReject = (nFulfill - n + 1);
+			nFulfill = Math.min(n, nFulfill);
+
+			if(n > nFulfill) {
+				resolver.reject(new RangeError('some(): array must contain at least '
+				+ n + ' item(s), but had ' + nFulfill));
+			} else if(nFulfill === 0) {
+				resolver.resolve(results);
+			}
+
+			// Second pass: observe each array item, make progress toward goals
+			for(i=0; i<l; ++i) {
+				x = promises[i];
+				if(x === void 0 && !(i in promises)) {
+					continue;
+				}
+
+				Promise._handler(x).visit(resolver, fulfill, reject, resolver.notify);
+			}
+
+			return p;
+
+			function fulfill(x) {
+				/*jshint validthis:true*/
+				if(this.resolved) { // this === resolver
+					return;
+				}
+
+				results.push(x);
+				if(--nFulfill === 0) {
+					errors = null;
+					this.resolve(results);
+				}
+			}
+
+			function reject(e) {
+				/*jshint validthis:true*/
+				if(this.resolved) { // this === resolver
+					return;
+				}
+
+				errors.push(e);
+				if(--nReject === 0) {
+					results = null;
+					this.reject(errors);
+				}
+			}
+		}
+
+		/**
+		 * Apply f to the value of each promise in a list of promises
+		 * and return a new list containing the results.
+		 * @param {array} promises
+		 * @param {function(x:*, index:Number):*} f mapping function
+		 * @returns {Promise}
+		 */
+		function map(promises, f) {
+			return Promise._traverse(f, promises);
+		}
+
+		/**
+		 * Filter the provided array of promises using the provided predicate.  Input may
+		 * contain promises and values
+		 * @param {Array} promises array of promises and values
+		 * @param {function(x:*, index:Number):boolean} predicate filtering predicate.
+		 *  Must return truthy (or promise for truthy) for items to retain.
+		 * @returns {Promise} promise that will fulfill with an array containing all items
+		 *  for which predicate returned truthy.
+		 */
+		function filter(promises, predicate) {
+			var a = slice.call(promises);
+			return Promise._traverse(predicate, a).then(function(keep) {
+				return filterSync(a, keep);
+			});
+		}
+
+		function filterSync(promises, keep) {
+			// Safe because we know all promises have fulfilled if we've made it this far
+			var l = keep.length;
+			var filtered = new Array(l);
+			for(var i=0, j=0; i<l; ++i) {
+				if(keep[i]) {
+					filtered[j++] = Promise._handler(promises[i]).value;
+				}
+			}
+			filtered.length = j;
+			return filtered;
+
+		}
+
+		/**
+		 * Return a promise that will always fulfill with an array containing
+		 * the outcome states of all input promises.  The returned promise
+		 * will never reject.
+		 * @param {Array} promises
+		 * @returns {Promise} promise for array of settled state descriptors
+		 */
+		function settle(promises) {
+			return all(promises.map(settleOne));
+		}
+
+		function settleOne(p) {
+			var h = Promise._handler(p);
+			if(h.state() === 0) {
+				return toPromise(p).then(state.fulfilled, state.rejected);
+			}
+
+			h._unreport();
+			return state.inspect(h);
+		}
+
+		/**
+		 * Traditional reduce function, similar to `Array.prototype.reduce()`, but
+		 * input may contain promises and/or values, and reduceFunc
+		 * may return either a value or a promise, *and* initialValue may
+		 * be a promise for the starting value.
+		 * @param {Array|Promise} promises array or promise for an array of anything,
+		 *      may contain a mix of promises and values.
+		 * @param {function(accumulated:*, x:*, index:Number):*} f reduce function
+		 * @returns {Promise} that will resolve to the final reduced value
+		 */
+		function reduce(promises, f /*, initialValue */) {
+			return arguments.length > 2 ? ar.call(promises, liftCombine(f), arguments[2])
+					: ar.call(promises, liftCombine(f));
+		}
+
+		/**
+		 * Traditional reduce function, similar to `Array.prototype.reduceRight()`, but
+		 * input may contain promises and/or values, and reduceFunc
+		 * may return either a value or a promise, *and* initialValue may
+		 * be a promise for the starting value.
+		 * @param {Array|Promise} promises array or promise for an array of anything,
+		 *      may contain a mix of promises and values.
+		 * @param {function(accumulated:*, x:*, index:Number):*} f reduce function
+		 * @returns {Promise} that will resolve to the final reduced value
+		 */
+		function reduceRight(promises, f /*, initialValue */) {
+			return arguments.length > 2 ? arr.call(promises, liftCombine(f), arguments[2])
+					: arr.call(promises, liftCombine(f));
+		}
+
+		function liftCombine(f) {
+			return function(z, x, i) {
+				return applyFold(f, void 0, [z,x,i]);
+			};
+		}
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../apply":52,"../state":65}],54:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function flow(Promise) {
+
+		var resolve = Promise.resolve;
+		var reject = Promise.reject;
+		var origCatch = Promise.prototype['catch'];
+
+		/**
+		 * Handle the ultimate fulfillment value or rejection reason, and assume
+		 * responsibility for all errors.  If an error propagates out of result
+		 * or handleFatalError, it will be rethrown to the host, resulting in a
+		 * loud stack track on most platforms and a crash on some.
+		 * @param {function?} onResult
+		 * @param {function?} onError
+		 * @returns {undefined}
+		 */
+		Promise.prototype.done = function(onResult, onError) {
+			this._handler.visit(this._handler.receiver, onResult, onError);
+		};
+
+		/**
+		 * Add Error-type and predicate matching to catch.  Examples:
+		 * promise.catch(TypeError, handleTypeError)
+		 *   .catch(predicate, handleMatchedErrors)
+		 *   .catch(handleRemainingErrors)
+		 * @param onRejected
+		 * @returns {*}
+		 */
+		Promise.prototype['catch'] = Promise.prototype.otherwise = function(onRejected) {
+			if (arguments.length < 2) {
+				return origCatch.call(this, onRejected);
+			}
+
+			if(typeof onRejected !== 'function') {
+				return this.ensure(rejectInvalidPredicate);
+			}
+
+			return origCatch.call(this, createCatchFilter(arguments[1], onRejected));
+		};
+
+		/**
+		 * Wraps the provided catch handler, so that it will only be called
+		 * if the predicate evaluates truthy
+		 * @param {?function} handler
+		 * @param {function} predicate
+		 * @returns {function} conditional catch handler
+		 */
+		function createCatchFilter(handler, predicate) {
+			return function(e) {
+				return evaluatePredicate(e, predicate)
+					? handler.call(this, e)
+					: reject(e);
+			};
+		}
+
+		/**
+		 * Ensures that onFulfilledOrRejected will be called regardless of whether
+		 * this promise is fulfilled or rejected.  onFulfilledOrRejected WILL NOT
+		 * receive the promises' value or reason.  Any returned value will be disregarded.
+		 * onFulfilledOrRejected may throw or return a rejected promise to signal
+		 * an additional error.
+		 * @param {function} handler handler to be called regardless of
+		 *  fulfillment or rejection
+		 * @returns {Promise}
+		 */
+		Promise.prototype['finally'] = Promise.prototype.ensure = function(handler) {
+			if(typeof handler !== 'function') {
+				return this;
+			}
+
+			return this.then(function(x) {
+				return runSideEffect(handler, this, identity, x);
+			}, function(e) {
+				return runSideEffect(handler, this, reject, e);
+			});
+		};
+
+		function runSideEffect (handler, thisArg, propagate, value) {
+			var result = handler.call(thisArg);
+			return maybeThenable(result)
+				? propagateValue(result, propagate, value)
+				: propagate(value);
+		}
+
+		function propagateValue (result, propagate, x) {
+			return resolve(result).then(function () {
+				return propagate(x);
+			});
+		}
+
+		/**
+		 * Recover from a failure by returning a defaultValue.  If defaultValue
+		 * is a promise, it's fulfillment value will be used.  If defaultValue is
+		 * a promise that rejects, the returned promise will reject with the
+		 * same reason.
+		 * @param {*} defaultValue
+		 * @returns {Promise} new promise
+		 */
+		Promise.prototype['else'] = Promise.prototype.orElse = function(defaultValue) {
+			return this.then(void 0, function() {
+				return defaultValue;
+			});
+		};
+
+		/**
+		 * Shortcut for .then(function() { return value; })
+		 * @param  {*} value
+		 * @return {Promise} a promise that:
+		 *  - is fulfilled if value is not a promise, or
+		 *  - if value is a promise, will fulfill with its value, or reject
+		 *    with its reason.
+		 */
+		Promise.prototype['yield'] = function(value) {
+			return this.then(function() {
+				return value;
+			});
+		};
+
+		/**
+		 * Runs a side effect when this promise fulfills, without changing the
+		 * fulfillment value.
+		 * @param {function} onFulfilledSideEffect
+		 * @returns {Promise}
+		 */
+		Promise.prototype.tap = function(onFulfilledSideEffect) {
+			return this.then(onFulfilledSideEffect)['yield'](this);
+		};
+
+		return Promise;
+	};
+
+	function rejectInvalidPredicate() {
+		throw new TypeError('catch predicate must be a function');
+	}
+
+	function evaluatePredicate(e, predicate) {
+		return isError(predicate) ? e instanceof predicate : predicate(e);
+	}
+
+	function isError(predicate) {
+		return predicate === Error
+			|| (predicate != null && predicate.prototype instanceof Error);
+	}
+
+	function maybeThenable(x) {
+		return (typeof x === 'object' || typeof x === 'function') && x !== null;
+	}
+
+	function identity(x) {
+		return x;
+	}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],55:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+/** @author Jeff Escalante */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function fold(Promise) {
+
+		Promise.prototype.fold = function(f, z) {
+			var promise = this._beget();
+
+			this._handler.fold(function(z, x, to) {
+				Promise._handler(z).fold(function(x, z, to) {
+					to.resolve(f.call(this, z, x));
+				}, x, this, to);
+			}, z, promise._handler.receiver, promise._handler);
+
+			return promise;
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],56:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var inspect = require('../state').inspect;
+
+	return function inspection(Promise) {
+
+		Promise.prototype.inspect = function() {
+			return inspect(Promise._handler(this));
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../state":65}],57:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function generate(Promise) {
+
+		var resolve = Promise.resolve;
+
+		Promise.iterate = iterate;
+		Promise.unfold = unfold;
+
+		return Promise;
+
+		/**
+		 * @deprecated Use github.com/cujojs/most streams and most.iterate
+		 * Generate a (potentially infinite) stream of promised values:
+		 * x, f(x), f(f(x)), etc. until condition(x) returns true
+		 * @param {function} f function to generate a new x from the previous x
+		 * @param {function} condition function that, given the current x, returns
+		 *  truthy when the iterate should stop
+		 * @param {function} handler function to handle the value produced by f
+		 * @param {*|Promise} x starting value, may be a promise
+		 * @return {Promise} the result of the last call to f before
+		 *  condition returns true
+		 */
+		function iterate(f, condition, handler, x) {
+			return unfold(function(x) {
+				return [x, f(x)];
+			}, condition, handler, x);
+		}
+
+		/**
+		 * @deprecated Use github.com/cujojs/most streams and most.unfold
+		 * Generate a (potentially infinite) stream of promised values
+		 * by applying handler(generator(seed)) iteratively until
+		 * condition(seed) returns true.
+		 * @param {function} unspool function that generates a [value, newSeed]
+		 *  given a seed.
+		 * @param {function} condition function that, given the current seed, returns
+		 *  truthy when the unfold should stop
+		 * @param {function} handler function to handle the value produced by unspool
+		 * @param x {*|Promise} starting value, may be a promise
+		 * @return {Promise} the result of the last value produced by unspool before
+		 *  condition returns true
+		 */
+		function unfold(unspool, condition, handler, x) {
+			return resolve(x).then(function(seed) {
+				return resolve(condition(seed)).then(function(done) {
+					return done ? seed : resolve(unspool(seed)).spread(next);
+				});
+			});
+
+			function next(item, newSeed) {
+				return resolve(handler(item)).then(function() {
+					return unfold(unspool, condition, handler, newSeed);
+				});
+			}
+		}
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],58:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function progress(Promise) {
+
+		/**
+		 * @deprecated
+		 * Register a progress handler for this promise
+		 * @param {function} onProgress
+		 * @returns {Promise}
+		 */
+		Promise.prototype.progress = function(onProgress) {
+			return this.then(void 0, void 0, onProgress);
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],59:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var env = require('../env');
+	var TimeoutError = require('../TimeoutError');
+
+	function setTimeout(f, ms, x, y) {
+		return env.setTimer(function() {
+			f(x, y, ms);
+		}, ms);
+	}
+
+	return function timed(Promise) {
+		/**
+		 * Return a new promise whose fulfillment value is revealed only
+		 * after ms milliseconds
+		 * @param {number} ms milliseconds
+		 * @returns {Promise}
+		 */
+		Promise.prototype.delay = function(ms) {
+			var p = this._beget();
+			this._handler.fold(handleDelay, ms, void 0, p._handler);
+			return p;
+		};
+
+		function handleDelay(ms, x, h) {
+			setTimeout(resolveDelay, ms, x, h);
+		}
+
+		function resolveDelay(x, h) {
+			h.resolve(x);
+		}
+
+		/**
+		 * Return a new promise that rejects after ms milliseconds unless
+		 * this promise fulfills earlier, in which case the returned promise
+		 * fulfills with the same value.
+		 * @param {number} ms milliseconds
+		 * @param {Error|*=} reason optional rejection reason to use, defaults
+		 *   to a TimeoutError if not provided
+		 * @returns {Promise}
+		 */
+		Promise.prototype.timeout = function(ms, reason) {
+			var p = this._beget();
+			var h = p._handler;
+
+			var t = setTimeout(onTimeout, ms, reason, p._handler);
+
+			this._handler.visit(h,
+				function onFulfill(x) {
+					env.clearTimer(t);
+					this.resolve(x); // this = h
+				},
+				function onReject(x) {
+					env.clearTimer(t);
+					this.reject(x); // this = h
+				},
+				h.notify);
+
+			return p;
+		};
+
+		function onTimeout(reason, h, ms) {
+			var e = typeof reason === 'undefined'
+				? new TimeoutError('timed out after ' + ms + 'ms')
+				: reason;
+			h.reject(e);
+		}
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../TimeoutError":51,"../env":62}],60:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function(require) {
+
+	var setTimer = require('../env').setTimer;
+	var format = require('../format');
+
+	return function unhandledRejection(Promise) {
+
+		var logError = noop;
+		var logInfo = noop;
+		var localConsole;
+
+		if(typeof console !== 'undefined') {
+			// Alias console to prevent things like uglify's drop_console option from
+			// removing console.log/error. Unhandled rejections fall into the same
+			// category as uncaught exceptions, and build tools shouldn't silence them.
+			localConsole = console;
+			logError = typeof localConsole.error !== 'undefined'
+				? function (e) { localConsole.error(e); }
+				: function (e) { localConsole.log(e); };
+
+			logInfo = typeof localConsole.info !== 'undefined'
+				? function (e) { localConsole.info(e); }
+				: function (e) { localConsole.log(e); };
+		}
+
+		Promise.onPotentiallyUnhandledRejection = function(rejection) {
+			enqueue(report, rejection);
+		};
+
+		Promise.onPotentiallyUnhandledRejectionHandled = function(rejection) {
+			enqueue(unreport, rejection);
+		};
+
+		Promise.onFatalRejection = function(rejection) {
+			enqueue(throwit, rejection.value);
+		};
+
+		var tasks = [];
+		var reported = [];
+		var running = null;
+
+		function report(r) {
+			if(!r.handled) {
+				reported.push(r);
+				logError('Potentially unhandled rejection [' + r.id + '] ' + format.formatError(r.value));
+			}
+		}
+
+		function unreport(r) {
+			var i = reported.indexOf(r);
+			if(i >= 0) {
+				reported.splice(i, 1);
+				logInfo('Handled previous rejection [' + r.id + '] ' + format.formatObject(r.value));
+			}
+		}
+
+		function enqueue(f, x) {
+			tasks.push(f, x);
+			if(running === null) {
+				running = setTimer(flush, 0);
+			}
+		}
+
+		function flush() {
+			running = null;
+			while(tasks.length > 0) {
+				tasks.shift()(tasks.shift());
+			}
+		}
+
+		return Promise;
+	};
+
+	function throwit(e) {
+		throw e;
+	}
+
+	function noop() {}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+},{"../env":62,"../format":63}],61:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function addWith(Promise) {
+		/**
+		 * Returns a promise whose handlers will be called with `this` set to
+		 * the supplied receiver.  Subsequent promises derived from the
+		 * returned promise will also have their handlers called with receiver
+		 * as `this`. Calling `with` with undefined or no arguments will return
+		 * a promise whose handlers will again be called in the usual Promises/A+
+		 * way (no `this`) thus safely undoing any previous `with` in the
+		 * promise chain.
+		 *
+		 * WARNING: Promises returned from `with`/`withThis` are NOT Promises/A+
+		 * compliant, specifically violating 2.2.5 (http://promisesaplus.com/#point-41)
+		 *
+		 * @param {object} receiver `this` value for all handlers attached to
+		 *  the returned promise.
+		 * @returns {Promise}
+		 */
+		Promise.prototype['with'] = Promise.prototype.withThis = function(receiver) {
+			var p = this._beget();
+			var child = p._handler;
+			child.receiver = receiver;
+			this._handler.chain(child, receiver);
+			return p;
+		};
+
+		return Promise;
+	};
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+
+},{}],62:[function(require,module,exports){
+(function (process){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+/*global process,document,setTimeout,clearTimeout,MutationObserver,WebKitMutationObserver*/
+(function(define) { 'use strict';
+define(function(require) {
+	/*jshint maxcomplexity:6*/
+
+	// Sniff "best" async scheduling option
+	// Prefer process.nextTick or MutationObserver, then check for
+	// setTimeout, and finally vertx, since its the only env that doesn't
+	// have setTimeout
+
+	var MutationObs;
+	var capturedSetTimeout = typeof setTimeout !== 'undefined' && setTimeout;
+
+	// Default env
+	var setTimer = function(f, ms) { return setTimeout(f, ms); };
+	var clearTimer = function(t) { return clearTimeout(t); };
+	var asap = function (f) { return capturedSetTimeout(f, 0); };
+
+	// Detect specific env
+	if (isNode()) { // Node
+		asap = function (f) { return process.nextTick(f); };
+
+	} else if (MutationObs = hasMutationObserver()) { // Modern browser
+		asap = initMutationObserver(MutationObs);
+
+	} else if (!capturedSetTimeout) { // vert.x
+		var vertxRequire = require;
+		var vertx = vertxRequire('vertx');
+		setTimer = function (f, ms) { return vertx.setTimer(ms, f); };
+		clearTimer = vertx.cancelTimer;
+		asap = vertx.runOnLoop || vertx.runOnContext;
+	}
+
+	return {
+		setTimer: setTimer,
+		clearTimer: clearTimer,
+		asap: asap
+	};
+
+	function isNode () {
+		return typeof process !== 'undefined' &&
+			Object.prototype.toString.call(process) === '[object process]';
+	}
+
+	function hasMutationObserver () {
+		return (typeof MutationObserver === 'function' && MutationObserver) ||
+			(typeof WebKitMutationObserver === 'function' && WebKitMutationObserver);
+	}
+
+	function initMutationObserver(MutationObserver) {
+		var scheduled;
+		var node = document.createTextNode('');
+		var o = new MutationObserver(run);
+		o.observe(node, { characterData: true });
+
+		function run() {
+			var f = scheduled;
+			scheduled = void 0;
+			f();
+		}
+
+		var i = 0;
+		return function (f) {
+			scheduled = f;
+			node.data = (i ^= 1);
+		};
+	}
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(require); }));
+
+}).call(this,require('_process'))
+},{"_process":9}],63:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return {
+		formatError: formatError,
+		formatObject: formatObject,
+		tryStringify: tryStringify
+	};
+
+	/**
+	 * Format an error into a string.  If e is an Error and has a stack property,
+	 * it's returned.  Otherwise, e is formatted using formatObject, with a
+	 * warning added about e not being a proper Error.
+	 * @param {*} e
+	 * @returns {String} formatted string, suitable for output to developers
+	 */
+	function formatError(e) {
+		var s = typeof e === 'object' && e !== null && e.stack ? e.stack : formatObject(e);
+		return e instanceof Error ? s : s + ' (WARNING: non-Error used)';
+	}
+
+	/**
+	 * Format an object, detecting "plain" objects and running them through
+	 * JSON.stringify if possible.
+	 * @param {Object} o
+	 * @returns {string}
+	 */
+	function formatObject(o) {
+		var s = String(o);
+		if(s === '[object Object]' && typeof JSON !== 'undefined') {
+			s = tryStringify(o, s);
+		}
+		return s;
+	}
+
+	/**
+	 * Try to return the result of JSON.stringify(x).  If that fails, return
+	 * defaultValue
+	 * @param {*} x
+	 * @param {*} defaultValue
+	 * @returns {String|*} JSON.stringify(x) or defaultValue
+	 */
+	function tryStringify(x, defaultValue) {
+		try {
+			return JSON.stringify(x);
+		} catch(e) {
+			return defaultValue;
+		}
+	}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],64:[function(require,module,exports){
+(function (process){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return function makePromise(environment) {
+
+		var tasks = environment.scheduler;
+		var emitRejection = initEmitRejection();
+
+		var objectCreate = Object.create ||
+			function(proto) {
+				function Child() {}
+				Child.prototype = proto;
+				return new Child();
+			};
+
+		/**
+		 * Create a promise whose fate is determined by resolver
+		 * @constructor
+		 * @returns {Promise} promise
+		 * @name Promise
+		 */
+		function Promise(resolver, handler) {
+			this._handler = resolver === Handler ? handler : init(resolver);
+		}
+
+		/**
+		 * Run the supplied resolver
+		 * @param resolver
+		 * @returns {Pending}
+		 */
+		function init(resolver) {
+			var handler = new Pending();
+
+			try {
+				resolver(promiseResolve, promiseReject, promiseNotify);
+			} catch (e) {
+				promiseReject(e);
+			}
+
+			return handler;
+
+			/**
+			 * Transition from pre-resolution state to post-resolution state, notifying
+			 * all listeners of the ultimate fulfillment or rejection
+			 * @param {*} x resolution value
+			 */
+			function promiseResolve (x) {
+				handler.resolve(x);
+			}
+			/**
+			 * Reject this promise with reason, which will be used verbatim
+			 * @param {Error|*} reason rejection reason, strongly suggested
+			 *   to be an Error type
+			 */
+			function promiseReject (reason) {
+				handler.reject(reason);
+			}
+
+			/**
+			 * @deprecated
+			 * Issue a progress event, notifying all progress listeners
+			 * @param {*} x progress event payload to pass to all listeners
+			 */
+			function promiseNotify (x) {
+				handler.notify(x);
+			}
+		}
+
+		// Creation
+
+		Promise.resolve = resolve;
+		Promise.reject = reject;
+		Promise.never = never;
+
+		Promise._defer = defer;
+		Promise._handler = getHandler;
+
+		/**
+		 * Returns a trusted promise. If x is already a trusted promise, it is
+		 * returned, otherwise returns a new trusted Promise which follows x.
+		 * @param  {*} x
+		 * @return {Promise} promise
+		 */
+		function resolve(x) {
+			return isPromise(x) ? x
+				: new Promise(Handler, new Async(getHandler(x)));
+		}
+
+		/**
+		 * Return a reject promise with x as its reason (x is used verbatim)
+		 * @param {*} x
+		 * @returns {Promise} rejected promise
+		 */
+		function reject(x) {
+			return new Promise(Handler, new Async(new Rejected(x)));
+		}
+
+		/**
+		 * Return a promise that remains pending forever
+		 * @returns {Promise} forever-pending promise.
+		 */
+		function never() {
+			return foreverPendingPromise; // Should be frozen
+		}
+
+		/**
+		 * Creates an internal {promise, resolver} pair
+		 * @private
+		 * @returns {Promise}
+		 */
+		function defer() {
+			return new Promise(Handler, new Pending());
+		}
+
+		// Transformation and flow control
+
+		/**
+		 * Transform this promise's fulfillment value, returning a new Promise
+		 * for the transformed result.  If the promise cannot be fulfilled, onRejected
+		 * is called with the reason.  onProgress *may* be called with updates toward
+		 * this promise's fulfillment.
+		 * @param {function=} onFulfilled fulfillment handler
+		 * @param {function=} onRejected rejection handler
+		 * @param {function=} onProgress @deprecated progress handler
+		 * @return {Promise} new promise
+		 */
+		Promise.prototype.then = function(onFulfilled, onRejected, onProgress) {
+			var parent = this._handler;
+			var state = parent.join().state();
+
+			if ((typeof onFulfilled !== 'function' && state > 0) ||
+				(typeof onRejected !== 'function' && state < 0)) {
+				// Short circuit: value will not change, simply share handler
+				return new this.constructor(Handler, parent);
+			}
+
+			var p = this._beget();
+			var child = p._handler;
+
+			parent.chain(child, parent.receiver, onFulfilled, onRejected, onProgress);
+
+			return p;
+		};
+
+		/**
+		 * If this promise cannot be fulfilled due to an error, call onRejected to
+		 * handle the error. Shortcut for .then(undefined, onRejected)
+		 * @param {function?} onRejected
+		 * @return {Promise}
+		 */
+		Promise.prototype['catch'] = function(onRejected) {
+			return this.then(void 0, onRejected);
+		};
+
+		/**
+		 * Creates a new, pending promise of the same type as this promise
+		 * @private
+		 * @returns {Promise}
+		 */
+		Promise.prototype._beget = function() {
+			return begetFrom(this._handler, this.constructor);
+		};
+
+		function begetFrom(parent, Promise) {
+			var child = new Pending(parent.receiver, parent.join().context);
+			return new Promise(Handler, child);
+		}
+
+		// Array combinators
+
+		Promise.all = all;
+		Promise.race = race;
+		Promise._traverse = traverse;
+
+		/**
+		 * Return a promise that will fulfill when all promises in the
+		 * input array have fulfilled, or will reject when one of the
+		 * promises rejects.
+		 * @param {array} promises array of promises
+		 * @returns {Promise} promise for array of fulfillment values
+		 */
+		function all(promises) {
+			return traverseWith(snd, null, promises);
+		}
+
+		/**
+		 * Array<Promise<X>> -> Promise<Array<f(X)>>
+		 * @private
+		 * @param {function} f function to apply to each promise's value
+		 * @param {Array} promises array of promises
+		 * @returns {Promise} promise for transformed values
+		 */
+		function traverse(f, promises) {
+			return traverseWith(tryCatch2, f, promises);
+		}
+
+		function traverseWith(tryMap, f, promises) {
+			var handler = typeof f === 'function' ? mapAt : settleAt;
+
+			var resolver = new Pending();
+			var pending = promises.length >>> 0;
+			var results = new Array(pending);
+
+			for (var i = 0, x; i < promises.length && !resolver.resolved; ++i) {
+				x = promises[i];
+
+				if (x === void 0 && !(i in promises)) {
+					--pending;
+					continue;
+				}
+
+				traverseAt(promises, handler, i, x, resolver);
+			}
+
+			if(pending === 0) {
+				resolver.become(new Fulfilled(results));
+			}
+
+			return new Promise(Handler, resolver);
+
+			function mapAt(i, x, resolver) {
+				if(!resolver.resolved) {
+					traverseAt(promises, settleAt, i, tryMap(f, x, i), resolver);
+				}
+			}
+
+			function settleAt(i, x, resolver) {
+				results[i] = x;
+				if(--pending === 0) {
+					resolver.become(new Fulfilled(results));
+				}
+			}
+		}
+
+		function traverseAt(promises, handler, i, x, resolver) {
+			if (maybeThenable(x)) {
+				var h = getHandlerMaybeThenable(x);
+				var s = h.state();
+
+				if (s === 0) {
+					h.fold(handler, i, void 0, resolver);
+				} else if (s > 0) {
+					handler(i, h.value, resolver);
+				} else {
+					resolver.become(h);
+					visitRemaining(promises, i+1, h);
+				}
+			} else {
+				handler(i, x, resolver);
+			}
+		}
+
+		Promise._visitRemaining = visitRemaining;
+		function visitRemaining(promises, start, handler) {
+			for(var i=start; i<promises.length; ++i) {
+				markAsHandled(getHandler(promises[i]), handler);
+			}
+		}
+
+		function markAsHandled(h, handler) {
+			if(h === handler) {
+				return;
+			}
+
+			var s = h.state();
+			if(s === 0) {
+				h.visit(h, void 0, h._unreport);
+			} else if(s < 0) {
+				h._unreport();
+			}
+		}
+
+		/**
+		 * Fulfill-reject competitive race. Return a promise that will settle
+		 * to the same state as the earliest input promise to settle.
+		 *
+		 * WARNING: The ES6 Promise spec requires that race()ing an empty array
+		 * must return a promise that is pending forever.  This implementation
+		 * returns a singleton forever-pending promise, the same singleton that is
+		 * returned by Promise.never(), thus can be checked with ===
+		 *
+		 * @param {array} promises array of promises to race
+		 * @returns {Promise} if input is non-empty, a promise that will settle
+		 * to the same outcome as the earliest input promise to settle. if empty
+		 * is empty, returns a promise that will never settle.
+		 */
+		function race(promises) {
+			if(typeof promises !== 'object' || promises === null) {
+				return reject(new TypeError('non-iterable passed to race()'));
+			}
+
+			// Sigh, race([]) is untestable unless we return *something*
+			// that is recognizable without calling .then() on it.
+			return promises.length === 0 ? never()
+				 : promises.length === 1 ? resolve(promises[0])
+				 : runRace(promises);
+		}
+
+		function runRace(promises) {
+			var resolver = new Pending();
+			var i, x, h;
+			for(i=0; i<promises.length; ++i) {
+				x = promises[i];
+				if (x === void 0 && !(i in promises)) {
+					continue;
+				}
+
+				h = getHandler(x);
+				if(h.state() !== 0) {
+					resolver.become(h);
+					visitRemaining(promises, i+1, h);
+					break;
+				} else {
+					h.visit(resolver, resolver.resolve, resolver.reject);
+				}
+			}
+			return new Promise(Handler, resolver);
+		}
+
+		// Promise internals
+		// Below this, everything is @private
+
+		/**
+		 * Get an appropriate handler for x, without checking for cycles
+		 * @param {*} x
+		 * @returns {object} handler
+		 */
+		function getHandler(x) {
+			if(isPromise(x)) {
+				return x._handler.join();
+			}
+			return maybeThenable(x) ? getHandlerUntrusted(x) : new Fulfilled(x);
+		}
+
+		/**
+		 * Get a handler for thenable x.
+		 * NOTE: You must only call this if maybeThenable(x) == true
+		 * @param {object|function|Promise} x
+		 * @returns {object} handler
+		 */
+		function getHandlerMaybeThenable(x) {
+			return isPromise(x) ? x._handler.join() : getHandlerUntrusted(x);
+		}
+
+		/**
+		 * Get a handler for potentially untrusted thenable x
+		 * @param {*} x
+		 * @returns {object} handler
+		 */
+		function getHandlerUntrusted(x) {
+			try {
+				var untrustedThen = x.then;
+				return typeof untrustedThen === 'function'
+					? new Thenable(untrustedThen, x)
+					: new Fulfilled(x);
+			} catch(e) {
+				return new Rejected(e);
+			}
+		}
+
+		/**
+		 * Handler for a promise that is pending forever
+		 * @constructor
+		 */
+		function Handler() {}
+
+		Handler.prototype.when
+			= Handler.prototype.become
+			= Handler.prototype.notify // deprecated
+			= Handler.prototype.fail
+			= Handler.prototype._unreport
+			= Handler.prototype._report
+			= noop;
+
+		Handler.prototype._state = 0;
+
+		Handler.prototype.state = function() {
+			return this._state;
+		};
+
+		/**
+		 * Recursively collapse handler chain to find the handler
+		 * nearest to the fully resolved value.
+		 * @returns {object} handler nearest the fully resolved value
+		 */
+		Handler.prototype.join = function() {
+			var h = this;
+			while(h.handler !== void 0) {
+				h = h.handler;
+			}
+			return h;
+		};
+
+		Handler.prototype.chain = function(to, receiver, fulfilled, rejected, progress) {
+			this.when({
+				resolver: to,
+				receiver: receiver,
+				fulfilled: fulfilled,
+				rejected: rejected,
+				progress: progress
+			});
+		};
+
+		Handler.prototype.visit = function(receiver, fulfilled, rejected, progress) {
+			this.chain(failIfRejected, receiver, fulfilled, rejected, progress);
+		};
+
+		Handler.prototype.fold = function(f, z, c, to) {
+			this.when(new Fold(f, z, c, to));
+		};
+
+		/**
+		 * Handler that invokes fail() on any handler it becomes
+		 * @constructor
+		 */
+		function FailIfRejected() {}
+
+		inherit(Handler, FailIfRejected);
+
+		FailIfRejected.prototype.become = function(h) {
+			h.fail();
+		};
+
+		var failIfRejected = new FailIfRejected();
+
+		/**
+		 * Handler that manages a queue of consumers waiting on a pending promise
+		 * @constructor
+		 */
+		function Pending(receiver, inheritedContext) {
+			Promise.createContext(this, inheritedContext);
+
+			this.consumers = void 0;
+			this.receiver = receiver;
+			this.handler = void 0;
+			this.resolved = false;
+		}
+
+		inherit(Handler, Pending);
+
+		Pending.prototype._state = 0;
+
+		Pending.prototype.resolve = function(x) {
+			this.become(getHandler(x));
+		};
+
+		Pending.prototype.reject = function(x) {
+			if(this.resolved) {
+				return;
+			}
+
+			this.become(new Rejected(x));
+		};
+
+		Pending.prototype.join = function() {
+			if (!this.resolved) {
+				return this;
+			}
+
+			var h = this;
+
+			while (h.handler !== void 0) {
+				h = h.handler;
+				if (h === this) {
+					return this.handler = cycle();
+				}
+			}
+
+			return h;
+		};
+
+		Pending.prototype.run = function() {
+			var q = this.consumers;
+			var handler = this.handler;
+			this.handler = this.handler.join();
+			this.consumers = void 0;
+
+			for (var i = 0; i < q.length; ++i) {
+				handler.when(q[i]);
+			}
+		};
+
+		Pending.prototype.become = function(handler) {
+			if(this.resolved) {
+				return;
+			}
+
+			this.resolved = true;
+			this.handler = handler;
+			if(this.consumers !== void 0) {
+				tasks.enqueue(this);
+			}
+
+			if(this.context !== void 0) {
+				handler._report(this.context);
+			}
+		};
+
+		Pending.prototype.when = function(continuation) {
+			if(this.resolved) {
+				tasks.enqueue(new ContinuationTask(continuation, this.handler));
+			} else {
+				if(this.consumers === void 0) {
+					this.consumers = [continuation];
+				} else {
+					this.consumers.push(continuation);
+				}
+			}
+		};
+
+		/**
+		 * @deprecated
+		 */
+		Pending.prototype.notify = function(x) {
+			if(!this.resolved) {
+				tasks.enqueue(new ProgressTask(x, this));
+			}
+		};
+
+		Pending.prototype.fail = function(context) {
+			var c = typeof context === 'undefined' ? this.context : context;
+			this.resolved && this.handler.join().fail(c);
+		};
+
+		Pending.prototype._report = function(context) {
+			this.resolved && this.handler.join()._report(context);
+		};
+
+		Pending.prototype._unreport = function() {
+			this.resolved && this.handler.join()._unreport();
+		};
+
+		/**
+		 * Wrap another handler and force it into a future stack
+		 * @param {object} handler
+		 * @constructor
+		 */
+		function Async(handler) {
+			this.handler = handler;
+		}
+
+		inherit(Handler, Async);
+
+		Async.prototype.when = function(continuation) {
+			tasks.enqueue(new ContinuationTask(continuation, this));
+		};
+
+		Async.prototype._report = function(context) {
+			this.join()._report(context);
+		};
+
+		Async.prototype._unreport = function() {
+			this.join()._unreport();
+		};
+
+		/**
+		 * Handler that wraps an untrusted thenable and assimilates it in a future stack
+		 * @param {function} then
+		 * @param {{then: function}} thenable
+		 * @constructor
+		 */
+		function Thenable(then, thenable) {
+			Pending.call(this);
+			tasks.enqueue(new AssimilateTask(then, thenable, this));
+		}
+
+		inherit(Pending, Thenable);
+
+		/**
+		 * Handler for a fulfilled promise
+		 * @param {*} x fulfillment value
+		 * @constructor
+		 */
+		function Fulfilled(x) {
+			Promise.createContext(this);
+			this.value = x;
+		}
+
+		inherit(Handler, Fulfilled);
+
+		Fulfilled.prototype._state = 1;
+
+		Fulfilled.prototype.fold = function(f, z, c, to) {
+			runContinuation3(f, z, this, c, to);
+		};
+
+		Fulfilled.prototype.when = function(cont) {
+			runContinuation1(cont.fulfilled, this, cont.receiver, cont.resolver);
+		};
+
+		var errorId = 0;
+
+		/**
+		 * Handler for a rejected promise
+		 * @param {*} x rejection reason
+		 * @constructor
+		 */
+		function Rejected(x) {
+			Promise.createContext(this);
+
+			this.id = ++errorId;
+			this.value = x;
+			this.handled = false;
+			this.reported = false;
+
+			this._report();
+		}
+
+		inherit(Handler, Rejected);
+
+		Rejected.prototype._state = -1;
+
+		Rejected.prototype.fold = function(f, z, c, to) {
+			to.become(this);
+		};
+
+		Rejected.prototype.when = function(cont) {
+			if(typeof cont.rejected === 'function') {
+				this._unreport();
+			}
+			runContinuation1(cont.rejected, this, cont.receiver, cont.resolver);
+		};
+
+		Rejected.prototype._report = function(context) {
+			tasks.afterQueue(new ReportTask(this, context));
+		};
+
+		Rejected.prototype._unreport = function() {
+			if(this.handled) {
+				return;
+			}
+			this.handled = true;
+			tasks.afterQueue(new UnreportTask(this));
+		};
+
+		Rejected.prototype.fail = function(context) {
+			this.reported = true;
+			emitRejection('unhandledRejection', this);
+			Promise.onFatalRejection(this, context === void 0 ? this.context : context);
+		};
+
+		function ReportTask(rejection, context) {
+			this.rejection = rejection;
+			this.context = context;
+		}
+
+		ReportTask.prototype.run = function() {
+			if(!this.rejection.handled && !this.rejection.reported) {
+				this.rejection.reported = true;
+				emitRejection('unhandledRejection', this.rejection) ||
+					Promise.onPotentiallyUnhandledRejection(this.rejection, this.context);
+			}
+		};
+
+		function UnreportTask(rejection) {
+			this.rejection = rejection;
+		}
+
+		UnreportTask.prototype.run = function() {
+			if(this.rejection.reported) {
+				emitRejection('rejectionHandled', this.rejection) ||
+					Promise.onPotentiallyUnhandledRejectionHandled(this.rejection);
+			}
+		};
+
+		// Unhandled rejection hooks
+		// By default, everything is a noop
+
+		Promise.createContext
+			= Promise.enterContext
+			= Promise.exitContext
+			= Promise.onPotentiallyUnhandledRejection
+			= Promise.onPotentiallyUnhandledRejectionHandled
+			= Promise.onFatalRejection
+			= noop;
+
+		// Errors and singletons
+
+		var foreverPendingHandler = new Handler();
+		var foreverPendingPromise = new Promise(Handler, foreverPendingHandler);
+
+		function cycle() {
+			return new Rejected(new TypeError('Promise cycle'));
+		}
+
+		// Task runners
+
+		/**
+		 * Run a single consumer
+		 * @constructor
+		 */
+		function ContinuationTask(continuation, handler) {
+			this.continuation = continuation;
+			this.handler = handler;
+		}
+
+		ContinuationTask.prototype.run = function() {
+			this.handler.join().when(this.continuation);
+		};
+
+		/**
+		 * Run a queue of progress handlers
+		 * @constructor
+		 */
+		function ProgressTask(value, handler) {
+			this.handler = handler;
+			this.value = value;
+		}
+
+		ProgressTask.prototype.run = function() {
+			var q = this.handler.consumers;
+			if(q === void 0) {
+				return;
+			}
+
+			for (var c, i = 0; i < q.length; ++i) {
+				c = q[i];
+				runNotify(c.progress, this.value, this.handler, c.receiver, c.resolver);
+			}
+		};
+
+		/**
+		 * Assimilate a thenable, sending it's value to resolver
+		 * @param {function} then
+		 * @param {object|function} thenable
+		 * @param {object} resolver
+		 * @constructor
+		 */
+		function AssimilateTask(then, thenable, resolver) {
+			this._then = then;
+			this.thenable = thenable;
+			this.resolver = resolver;
+		}
+
+		AssimilateTask.prototype.run = function() {
+			var h = this.resolver;
+			tryAssimilate(this._then, this.thenable, _resolve, _reject, _notify);
+
+			function _resolve(x) { h.resolve(x); }
+			function _reject(x)  { h.reject(x); }
+			function _notify(x)  { h.notify(x); }
+		};
+
+		function tryAssimilate(then, thenable, resolve, reject, notify) {
+			try {
+				then.call(thenable, resolve, reject, notify);
+			} catch (e) {
+				reject(e);
+			}
+		}
+
+		/**
+		 * Fold a handler value with z
+		 * @constructor
+		 */
+		function Fold(f, z, c, to) {
+			this.f = f; this.z = z; this.c = c; this.to = to;
+			this.resolver = failIfRejected;
+			this.receiver = this;
+		}
+
+		Fold.prototype.fulfilled = function(x) {
+			this.f.call(this.c, this.z, x, this.to);
+		};
+
+		Fold.prototype.rejected = function(x) {
+			this.to.reject(x);
+		};
+
+		Fold.prototype.progress = function(x) {
+			this.to.notify(x);
+		};
+
+		// Other helpers
+
+		/**
+		 * @param {*} x
+		 * @returns {boolean} true iff x is a trusted Promise
+		 */
+		function isPromise(x) {
+			return x instanceof Promise;
+		}
+
+		/**
+		 * Test just enough to rule out primitives, in order to take faster
+		 * paths in some code
+		 * @param {*} x
+		 * @returns {boolean} false iff x is guaranteed *not* to be a thenable
+		 */
+		function maybeThenable(x) {
+			return (typeof x === 'object' || typeof x === 'function') && x !== null;
+		}
+
+		function runContinuation1(f, h, receiver, next) {
+			if(typeof f !== 'function') {
+				return next.become(h);
+			}
+
+			Promise.enterContext(h);
+			tryCatchReject(f, h.value, receiver, next);
+			Promise.exitContext();
+		}
+
+		function runContinuation3(f, x, h, receiver, next) {
+			if(typeof f !== 'function') {
+				return next.become(h);
+			}
+
+			Promise.enterContext(h);
+			tryCatchReject3(f, x, h.value, receiver, next);
+			Promise.exitContext();
+		}
+
+		/**
+		 * @deprecated
+		 */
+		function runNotify(f, x, h, receiver, next) {
+			if(typeof f !== 'function') {
+				return next.notify(x);
+			}
+
+			Promise.enterContext(h);
+			tryCatchReturn(f, x, receiver, next);
+			Promise.exitContext();
+		}
+
+		function tryCatch2(f, a, b) {
+			try {
+				return f(a, b);
+			} catch(e) {
+				return reject(e);
+			}
+		}
+
+		/**
+		 * Return f.call(thisArg, x), or if it throws return a rejected promise for
+		 * the thrown exception
+		 */
+		function tryCatchReject(f, x, thisArg, next) {
+			try {
+				next.become(getHandler(f.call(thisArg, x)));
+			} catch(e) {
+				next.become(new Rejected(e));
+			}
+		}
+
+		/**
+		 * Same as above, but includes the extra argument parameter.
+		 */
+		function tryCatchReject3(f, x, y, thisArg, next) {
+			try {
+				f.call(thisArg, x, y, next);
+			} catch(e) {
+				next.become(new Rejected(e));
+			}
+		}
+
+		/**
+		 * @deprecated
+		 * Return f.call(thisArg, x), or if it throws, *return* the exception
+		 */
+		function tryCatchReturn(f, x, thisArg, next) {
+			try {
+				next.notify(f.call(thisArg, x));
+			} catch(e) {
+				next.notify(e);
+			}
+		}
+
+		function inherit(Parent, Child) {
+			Child.prototype = objectCreate(Parent.prototype);
+			Child.prototype.constructor = Child;
+		}
+
+		function snd(x, y) {
+			return y;
+		}
+
+		function noop() {}
+
+		function initEmitRejection() {
+			/*global process, self, CustomEvent*/
+			if(typeof process !== 'undefined' && process !== null
+				&& typeof process.emit === 'function') {
+				// Returning falsy here means to call the default
+				// onPotentiallyUnhandledRejection API.  This is safe even in
+				// browserify since process.emit always returns falsy in browserify:
+				// https://github.com/defunctzombie/node-process/blob/master/browser.js#L40-L46
+				return function(type, rejection) {
+					return type === 'unhandledRejection'
+						? process.emit(type, rejection.value, rejection)
+						: process.emit(type, rejection);
+				};
+			} else if(typeof self !== 'undefined' && typeof CustomEvent === 'function') {
+				return (function(noop, self, CustomEvent) {
+					var hasCustomEvent = false;
+					try {
+						var ev = new CustomEvent('unhandledRejection');
+						hasCustomEvent = ev instanceof CustomEvent;
+					} catch (e) {}
+
+					return !hasCustomEvent ? noop : function(type, rejection) {
+						var ev = new CustomEvent(type, {
+							detail: {
+								reason: rejection.value,
+								key: rejection
+							},
+							bubbles: false,
+							cancelable: true
+						});
+
+						return !self.dispatchEvent(ev);
+					};
+				}(noop, self, CustomEvent));
+			}
+
+			return noop;
+		}
+
+		return Promise;
+	};
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+}).call(this,require('_process'))
+},{"_process":9}],65:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+/** @author Brian Cavalier */
+/** @author John Hann */
+
+(function(define) { 'use strict';
+define(function() {
+
+	return {
+		pending: toPendingState,
+		fulfilled: toFulfilledState,
+		rejected: toRejectedState,
+		inspect: inspect
+	};
+
+	function toPendingState() {
+		return { state: 'pending' };
+	}
+
+	function toRejectedState(e) {
+		return { state: 'rejected', reason: e };
+	}
+
+	function toFulfilledState(x) {
+		return { state: 'fulfilled', value: x };
+	}
+
+	function inspect(handler) {
+		var state = handler.state();
+		return state === 0 ? toPendingState()
+			 : state > 0   ? toFulfilledState(handler.value)
+			               : toRejectedState(handler.value);
+	}
+
+});
+}(typeof define === 'function' && define.amd ? define : function(factory) { module.exports = factory(); }));
+
+},{}],66:[function(require,module,exports){
+/** @license MIT License (c) copyright 2010-2014 original author or authors */
+
+/**
+ * Promises/A+ and when() implementation
+ * when is part of the cujoJS family of libraries (http://cujojs.com/)
+ * @author Brian Cavalier
+ * @author John Hann
+ */
+(function(define) { 'use strict';
+define(function (require) {
+
+	var timed = require('./lib/decorators/timed');
+	var array = require('./lib/decorators/array');
+	var flow = require('./lib/decorators/flow');
+	var fold = require('./lib/decorators/fold');
+	var inspect = require('./lib/decorators/inspect');
+	var generate = require('./lib/decorators/iterate');
+	var progress = require('./lib/decorators/progress');
+	var withThis = require('./lib/decorators/with');
+	var unhandledRejection = require('./lib/decorators/unhandledRejection');
+	var TimeoutError = require('./lib/TimeoutError');
+
+	var Promise = [array, flow, fold, generate, progress,
+		inspect, withThis, timed, unhandledRejection]
+		.reduce(function(Promise, feature) {
+			return feature(Promise);
+		}, require('./lib/Promise'));
+
+	var apply = require('./lib/apply')(Promise);
+
+	// Public API
+
+	when.promise     = promise;              // Create a pending promise
+	when.resolve     = Promise.resolve;      // Create a resolved promise
+	when.reject      = Promise.reject;       // Create a rejected promise
+
+	when.lift        = lift;                 // lift a function to return promises
+	when['try']      = attempt;              // call a function and return a promise
+	when.attempt     = attempt;              // alias for when.try
+
+	when.iterate     = Promise.iterate;      // DEPRECATED (use cujojs/most streams) Generate a stream of promises
+	when.unfold      = Promise.unfold;       // DEPRECATED (use cujojs/most streams) Generate a stream of promises
+
+	when.join        = join;                 // Join 2 or more promises
+
+	when.all         = all;                  // Resolve a list of promises
+	when.settle      = settle;               // Settle a list of promises
+
+	when.any         = lift(Promise.any);    // One-winner race
+	when.some        = lift(Promise.some);   // Multi-winner race
+	when.race        = lift(Promise.race);   // First-to-settle race
+
+	when.map         = map;                  // Array.map() for promises
+	when.filter      = filter;               // Array.filter() for promises
+	when.reduce      = lift(Promise.reduce);       // Array.reduce() for promises
+	when.reduceRight = lift(Promise.reduceRight);  // Array.reduceRight() for promises
+
+	when.isPromiseLike = isPromiseLike;      // Is something promise-like, aka thenable
+
+	when.Promise     = Promise;              // Promise constructor
+	when.defer       = defer;                // Create a {promise, resolve, reject} tuple
+
+	// Error types
+
+	when.TimeoutError = TimeoutError;
+
+	/**
+	 * Get a trusted promise for x, or by transforming x with onFulfilled
+	 *
+	 * @param {*} x
+	 * @param {function?} onFulfilled callback to be called when x is
+	 *   successfully fulfilled.  If promiseOrValue is an immediate value, callback
+	 *   will be invoked immediately.
+	 * @param {function?} onRejected callback to be called when x is
+	 *   rejected.
+	 * @param {function?} onProgress callback to be called when progress updates
+	 *   are issued for x. @deprecated
+	 * @returns {Promise} a new promise that will fulfill with the return
+	 *   value of callback or errback or the completion value of promiseOrValue if
+	 *   callback and/or errback is not supplied.
+	 */
+	function when(x, onFulfilled, onRejected, onProgress) {
+		var p = Promise.resolve(x);
+		if (arguments.length < 2) {
+			return p;
+		}
+
+		return p.then(onFulfilled, onRejected, onProgress);
+	}
+
+	/**
+	 * Creates a new promise whose fate is determined by resolver.
+	 * @param {function} resolver function(resolve, reject, notify)
+	 * @returns {Promise} promise whose fate is determine by resolver
+	 */
+	function promise(resolver) {
+		return new Promise(resolver);
+	}
+
+	/**
+	 * Lift the supplied function, creating a version of f that returns
+	 * promises, and accepts promises as arguments.
+	 * @param {function} f
+	 * @returns {Function} version of f that returns promises
+	 */
+	function lift(f) {
+		return function() {
+			for(var i=0, l=arguments.length, a=new Array(l); i<l; ++i) {
+				a[i] = arguments[i];
+			}
+			return apply(f, this, a);
+		};
+	}
+
+	/**
+	 * Call f in a future turn, with the supplied args, and return a promise
+	 * for the result.
+	 * @param {function} f
+	 * @returns {Promise}
+	 */
+	function attempt(f /*, args... */) {
+		/*jshint validthis:true */
+		for(var i=0, l=arguments.length-1, a=new Array(l); i<l; ++i) {
+			a[i] = arguments[i+1];
+		}
+		return apply(f, this, a);
+	}
+
+	/**
+	 * Creates a {promise, resolver} pair, either or both of which
+	 * may be given out safely to consumers.
+	 * @return {{promise: Promise, resolve: function, reject: function, notify: function}}
+	 */
+	function defer() {
+		return new Deferred();
+	}
+
+	function Deferred() {
+		var p = Promise._defer();
+
+		function resolve(x) { p._handler.resolve(x); }
+		function reject(x) { p._handler.reject(x); }
+		function notify(x) { p._handler.notify(x); }
+
+		this.promise = p;
+		this.resolve = resolve;
+		this.reject = reject;
+		this.notify = notify;
+		this.resolver = { resolve: resolve, reject: reject, notify: notify };
+	}
+
+	/**
+	 * Determines if x is promise-like, i.e. a thenable object
+	 * NOTE: Will return true for *any thenable object*, and isn't truly
+	 * safe, since it may attempt to access the `then` property of x (i.e.
+	 *  clever/malicious getters may do weird things)
+	 * @param {*} x anything
+	 * @returns {boolean} true if x is promise-like
+	 */
+	function isPromiseLike(x) {
+		return x && typeof x.then === 'function';
+	}
+
+	/**
+	 * Return a promise that will resolve only once all the supplied arguments
+	 * have resolved. The resolution value of the returned promise will be an array
+	 * containing the resolution values of each of the arguments.
+	 * @param {...*} arguments may be a mix of promises and values
+	 * @returns {Promise}
+	 */
+	function join(/* ...promises */) {
+		return Promise.all(arguments);
+	}
+
+	/**
+	 * Return a promise that will fulfill once all input promises have
+	 * fulfilled, or reject when any one input promise rejects.
+	 * @param {array|Promise} promises array (or promise for an array) of promises
+	 * @returns {Promise}
+	 */
+	function all(promises) {
+		return when(promises, Promise.all);
+	}
+
+	/**
+	 * Return a promise that will always fulfill with an array containing
+	 * the outcome states of all input promises.  The returned promise
+	 * will only reject if `promises` itself is a rejected promise.
+	 * @param {array|Promise} promises array (or promise for an array) of promises
+	 * @returns {Promise} promise for array of settled state descriptors
+	 */
+	function settle(promises) {
+		return when(promises, Promise.settle);
+	}
+
+	/**
+	 * Promise-aware array map function, similar to `Array.prototype.map()`,
+	 * but input array may contain promises or values.
+	 * @param {Array|Promise} promises array of anything, may contain promises and values
+	 * @param {function(x:*, index:Number):*} mapFunc map function which may
+	 *  return a promise or value
+	 * @returns {Promise} promise that will fulfill with an array of mapped values
+	 *  or reject if any input promise rejects.
+	 */
+	function map(promises, mapFunc) {
+		return when(promises, function(promises) {
+			return Promise.map(promises, mapFunc);
+		});
+	}
+
+	/**
+	 * Filter the provided array of promises using the provided predicate.  Input may
+	 * contain promises and values
+	 * @param {Array|Promise} promises array of promises and values
+	 * @param {function(x:*, index:Number):boolean} predicate filtering predicate.
+	 *  Must return truthy (or promise for truthy) for items to retain.
+	 * @returns {Promise} promise that will fulfill with an array containing all items
+	 *  for which predicate returned truthy.
+	 */
+	function filter(promises, predicate) {
+		return when(promises, function(promises) {
+			return Promise.filter(promises, predicate);
+		});
+	}
+
+	return when;
+});
+})(typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); });
+
+},{"./lib/Promise":49,"./lib/TimeoutError":51,"./lib/apply":52,"./lib/decorators/array":53,"./lib/decorators/flow":54,"./lib/decorators/fold":55,"./lib/decorators/inspect":56,"./lib/decorators/iterate":57,"./lib/decorators/progress":58,"./lib/decorators/timed":59,"./lib/decorators/unhandledRejection":60,"./lib/decorators/with":61}],67:[function(require,module,exports){
+/*
+ * Copyright 2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		return {
+
+			/**
+			 * Find objects within a graph the contain a property of a certain name.
+			 *
+			 * NOTE: this method will not discover object graph cycles.
+			 *
+			 * @param {*} obj object to search on
+			 * @param {string} prop name of the property to search for
+			 * @param {Function} callback function to receive the found properties and their parent
+			 */
+			findProperties: function findProperties(obj, prop, callback) {
+				if (typeof obj !== 'object' || obj === null) { return; }
+				if (prop in obj) {
+					callback(obj[prop], obj, prop);
+				}
+				Object.keys(obj).forEach(function (key) {
+					findProperties(obj[key], prop, callback);
+				});
+			}
+
+		};
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],68:[function(require,module,exports){
+/*
+ * Copyright 2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var when;
+
+		when = require('when');
+
+		/**
+		 * Create a promise whose work is started only when a handler is registered.
+		 *
+		 * The work function will be invoked at most once. Thrown values will result
+		 * in promise rejection.
+		 *
+		 * @param {Function} work function whose ouput is used to resolve the
+		 *   returned promise.
+		 * @returns {Promise} a lazy promise
+		 */
+		function lazyPromise(work) {
+			var defer, started, resolver, promise, then;
+
+			defer = when.defer();
+			started = false;
+
+			resolver = defer.resolver;
+			promise = defer.promise;
+			then = promise.then;
+
+			promise.then = function () {
+				if (!started) {
+					started = true;
+					when.attempt(work).then(resolver.resolve, resolver.reject);
+				}
+				return then.apply(promise, arguments);
+			};
+
+			return promise;
+		}
+
+		return lazyPromise;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"when":66}],69:[function(require,module,exports){
+/*
+ * Copyright 2012-2013 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	// derived from dojo.mixin
+	define(function (/* require */) {
+
+		var empty = {};
+
+		/**
+		 * Mix the properties from the source object into the destination object.
+		 * When the same property occurs in more then one object, the right most
+		 * value wins.
+		 *
+		 * @param {Object} dest the object to copy properties to
+		 * @param {Object} sources the objects to copy properties from.  May be 1 to N arguments, but not an Array.
+		 * @return {Object} the destination object
+		 */
+		function mixin(dest /*, sources... */) {
+			var i, l, source, name;
+
+			if (!dest) { dest = {}; }
+			for (i = 1, l = arguments.length; i < l; i += 1) {
+				source = arguments[i];
+				for (name in source) {
+					if (!(name in dest) || (dest[name] !== source[name] && (!(name in empty) || empty[name] !== source[name]))) {
+						dest[name] = source[name];
+					}
+				}
+			}
+
+			return dest; // Object
+		}
+
+		return mixin;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],70:[function(require,module,exports){
+/*
+ * Copyright 2012 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		/**
+		 * Normalize HTTP header names using the pseudo camel case.
+		 *
+		 * For example:
+		 *   content-type         -> Content-Type
+		 *   accepts              -> Accepts
+		 *   x-custom-header-name -> X-Custom-Header-Name
+		 *
+		 * @param {string} name the raw header name
+		 * @return {string} the normalized header name
+		 */
+		function normalizeHeaderName(name) {
+			return name.toLowerCase()
+				.split('-')
+				.map(function (chunk) { return chunk.charAt(0).toUpperCase() + chunk.slice(1); })
+				.join('-');
+		}
+
+		return normalizeHeaderName;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],71:[function(require,module,exports){
+/*
+ * Copyright 2014-2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (require) {
+
+		var when = require('when'),
+			normalizeHeaderName = require('./normalizeHeaderName');
+
+		function property(promise, name) {
+			return promise.then(
+				function (value) {
+					return value && value[name];
+				},
+				function (value) {
+					return when.reject(value && value[name]);
+				}
+			);
+		}
+
+		/**
+		 * Obtain the response entity
+		 *
+		 * @returns {Promise} for the response entity
+		 */
+		function entity() {
+			/*jshint validthis:true */
+			return property(this, 'entity');
+		}
+
+		/**
+		 * Obtain the response status
+		 *
+		 * @returns {Promise} for the response status
+		 */
+		function status() {
+			/*jshint validthis:true */
+			return property(property(this, 'status'), 'code');
+		}
+
+		/**
+		 * Obtain the response headers map
+		 *
+		 * @returns {Promise} for the response headers map
+		 */
+		function headers() {
+			/*jshint validthis:true */
+			return property(this, 'headers');
+		}
+
+		/**
+		 * Obtain a specific response header
+		 *
+		 * @param {String} headerName the header to retrieve
+		 * @returns {Promise} for the response header's value
+		 */
+		function header(headerName) {
+			/*jshint validthis:true */
+			headerName = normalizeHeaderName(headerName);
+			return property(this.headers(), headerName);
+		}
+
+		/**
+		 * Follow a related resource
+		 *
+		 * The relationship to follow may be define as a plain string, an object
+		 * with the rel and params, or an array containing one or more entries
+		 * with the previous forms.
+		 *
+		 * Examples:
+		 *   response.follow('next')
+		 *
+		 *   response.follow({ rel: 'next', params: { pageSize: 100 } })
+		 *
+		 *   response.follow([
+		 *       { rel: 'items', params: { projection: 'noImages' } },
+		 *       'search',
+		 *       { rel: 'findByGalleryIsNull', params: { projection: 'noImages' } },
+		 *       'items'
+		 *   ])
+		 *
+		 * @param {String|Object|Array} rels one, or more, relationships to follow
+		 * @returns ResponsePromise<Response> related resource
+		 */
+		function follow(rels) {
+			/*jshint validthis:true */
+			rels = [].concat(rels);
+			return make(when.reduce(rels, function (response, rel) {
+				if (typeof rel === 'string') {
+					rel = { rel: rel };
+				}
+				if (typeof response.entity.clientFor !== 'function') {
+					throw new Error('Hypermedia response expected');
+				}
+				var client = response.entity.clientFor(rel.rel);
+				return client({ params: rel.params });
+			}, this));
+		}
+
+		/**
+		 * Wrap a Promise as an ResponsePromise
+		 *
+		 * @param {Promise<Response>} promise the promise for an HTTP Response
+		 * @returns {ResponsePromise<Response>} wrapped promise for Response with additional helper methods
+		 */
+		function make(promise) {
+			promise.status = status;
+			promise.headers = headers;
+			promise.header = header;
+			promise.entity = entity;
+			promise.follow = follow;
+			return promise;
+		}
+
+		function responsePromise() {
+			return make(when.apply(when, arguments));
+		}
+
+		responsePromise.make = make;
+		responsePromise.reject = function (val) {
+			return make(when.reject(val));
+		};
+		responsePromise.promise = function (func) {
+			return make(when.promise(func));
+		};
+
+		return responsePromise;
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"./normalizeHeaderName":70,"when":66}],72:[function(require,module,exports){
+/*
+ * Copyright 2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	define(function (/* require */) {
+
+		var charMap;
+
+		charMap = (function () {
+			var strings = {
+				alpha: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+				digit: '0123456789'
+			};
+
+			strings.genDelims = ':/?#[]@';
+			strings.subDelims = '!$&\'()*+,;=';
+			strings.reserved = strings.genDelims + strings.subDelims;
+			strings.unreserved = strings.alpha + strings.digit + '-._~';
+			strings.url = strings.reserved + strings.unreserved;
+			strings.scheme = strings.alpha + strings.digit + '+-.';
+			strings.userinfo = strings.unreserved + strings.subDelims + ':';
+			strings.host = strings.unreserved + strings.subDelims;
+			strings.port = strings.digit;
+			strings.pchar = strings.unreserved + strings.subDelims + ':@';
+			strings.segment = strings.pchar;
+			strings.path = strings.segment + '/';
+			strings.query = strings.pchar + '/?';
+			strings.fragment = strings.pchar + '/?';
+
+			return Object.keys(strings).reduce(function (charMap, set) {
+				charMap[set] = strings[set].split('').reduce(function (chars, myChar) {
+					chars[myChar] = true;
+					return chars;
+				}, {});
+				return charMap;
+			}, {});
+		}());
+
+		function encode(str, allowed) {
+			if (typeof str !== 'string') {
+				throw new Error('String required for URL encoding');
+			}
+			return str.split('').map(function (myChar) {
+				if (allowed.hasOwnProperty(myChar)) {
+					return myChar;
+				}
+				var code = myChar.charCodeAt(0);
+				if (code <= 127) {
+					return '%' + code.toString(16).toUpperCase();
+				}
+				else {
+					return encodeURIComponent(myChar).toUpperCase();
+				}
+			}).join('');
+		}
+
+		function makeEncoder(allowed) {
+			allowed = allowed || charMap.unreserved;
+			return function (str) {
+				return encode(str, allowed);
+			};
+		}
+
+		function decode(str) {
+			return decodeURIComponent(str);
+		}
+
+		return {
+
+			/*
+			 * Decode URL encoded strings
+			 *
+			 * @param {string} URL encoded string
+			 * @returns {string} URL decoded string
+			 */
+			decode: decode,
+
+			/*
+			 * URL encode a string
+			 *
+			 * All but alpha-numerics and a very limited set of punctuation - . _ ~ are
+			 * encoded.
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encode: makeEncoder(),
+
+			/*
+			* URL encode a URL
+			*
+			* All character permitted anywhere in a URL are left unencoded even
+			* if that character is not permitted in that portion of a URL.
+			*
+			* Note: This method is typically not what you want.
+			*
+			* @param {string} string to encode
+			* @returns {string} URL encoded string
+			*/
+			encodeURL: makeEncoder(charMap.url),
+
+			/*
+			 * URL encode the scheme portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodeScheme: makeEncoder(charMap.scheme),
+
+			/*
+			 * URL encode the user info portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodeUserInfo: makeEncoder(charMap.userinfo),
+
+			/*
+			 * URL encode the host portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodeHost: makeEncoder(charMap.host),
+
+			/*
+			 * URL encode the port portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodePort: makeEncoder(charMap.port),
+
+			/*
+			 * URL encode a path segment portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodePathSegment: makeEncoder(charMap.segment),
+
+			/*
+			 * URL encode the path portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodePath: makeEncoder(charMap.path),
+
+			/*
+			 * URL encode the query portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodeQuery: makeEncoder(charMap.query),
+
+			/*
+			 * URL encode the fragment portion of a URL
+			 *
+			 * @param {string} string to encode
+			 * @returns {string} URL encoded string
+			 */
+			encodeFragment: makeEncoder(charMap.fragment)
+
+		};
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{}],73:[function(require,module,exports){
+/*
+ * Copyright 2015 the original author or authors
+ * @license MIT, see LICENSE.txt for details
+ *
+ * @author Scott Andrews
+ */
+
+(function (define) {
+	'use strict';
+
+	var undef;
+
+	define(function (require) {
+
+		var uriEncoder, operations, prefixRE;
+
+		uriEncoder = require('./uriEncoder');
+
+		prefixRE = /^([^:]*):([0-9]+)$/;
+		operations = {
+			'':  { first: '',  separator: ',', named: false, empty: '',  encoder: uriEncoder.encode },
+			'+': { first: '',  separator: ',', named: false, empty: '',  encoder: uriEncoder.encodeURL },
+			'#': { first: '#', separator: ',', named: false, empty: '',  encoder: uriEncoder.encodeURL },
+			'.': { first: '.', separator: '.', named: false, empty: '',  encoder: uriEncoder.encode },
+			'/': { first: '/', separator: '/', named: false, empty: '',  encoder: uriEncoder.encode },
+			';': { first: ';', separator: ';', named: true,  empty: '',  encoder: uriEncoder.encode },
+			'?': { first: '?', separator: '&', named: true,  empty: '=', encoder: uriEncoder.encode },
+			'&': { first: '&', separator: '&', named: true,  empty: '=', encoder: uriEncoder.encode },
+			'=': { reserved: true },
+			',': { reserved: true },
+			'!': { reserved: true },
+			'@': { reserved: true },
+			'|': { reserved: true }
+		};
+
+		function apply(operation, expression, params) {
+			/*jshint maxcomplexity:11 */
+			return expression.split(',').reduce(function (result, variable) {
+				var opts, value;
+
+				opts = {};
+				if (variable.slice(-1) === '*') {
+					variable = variable.slice(0, -1);
+					opts.explode = true;
+				}
+				if (prefixRE.test(variable)) {
+					var prefix = prefixRE.exec(variable);
+					variable = prefix[1];
+					opts.maxLength = parseInt(prefix[2]);
+				}
+
+				variable = uriEncoder.decode(variable);
+				value = params[variable];
+
+				if (value === undef || value === null) {
+					return result;
+				}
+				if (Array.isArray(value)) {
+					result += value.reduce(function (result, value) {
+						if (result.length) {
+							result += opts.explode ? operation.separator : ',';
+							if (operation.named && opts.explode) {
+								result += operation.encoder(variable);
+								result += value.length ? '=' : operation.empty;
+							}
+						}
+						else {
+							result += operation.first;
+							if (operation.named) {
+								result += operation.encoder(variable);
+								result += value.length ? '=' : operation.empty;
+							}
+						}
+						result += operation.encoder(value);
+						return result;
+					}, '');
+				}
+				else if (typeof value === 'object') {
+					result += Object.keys(value).reduce(function (result, name) {
+						if (result.length) {
+							result += opts.explode ? operation.separator : ',';
+						}
+						else {
+							result += operation.first;
+							if (operation.named && !opts.explode) {
+								result += operation.encoder(variable);
+								result += value[name].length ? '=' : operation.empty;
+							}
+						}
+						result += operation.encoder(name);
+						result += opts.explode ? '=' : ',';
+						result += operation.encoder(value[name]);
+						return result;
+					}, '');
+				}
+				else {
+					value = String(value);
+					if (opts.maxLength) {
+						value = value.slice(0, opts.maxLength);
+					}
+					result += result.length ? operation.separator : operation.first;
+					if (operation.named) {
+						result += operation.encoder(variable);
+						result += value.length ? '=' : operation.empty;
+					}
+					result += operation.encoder(value);
+				}
+
+				return result;
+			}, '');
+		}
+
+		function expandExpression(expression, params) {
+			var operation;
+
+			operation = operations[expression.slice(0,1)];
+			if (operation) {
+				expression = expression.slice(1);
+			}
+			else {
+				operation = operations[''];
+			}
+
+			if (operation.reserved) {
+				throw new Error('Reserved expression operations are not supported');
+			}
+
+			return apply(operation, expression, params);
+		}
+
+		function expandTemplate(template, params) {
+			var start, end, uri;
+
+			uri = '';
+			end = 0;
+			while (true) {
+				start = template.indexOf('{', end);
+				if (start === -1) {
+					// no more expressions
+					uri += template.slice(end);
+					break;
+				}
+				uri += template.slice(end, start);
+				end = template.indexOf('}', start) + 1;
+				uri += expandExpression(template.slice(start + 1, end - 1), params);
+			}
+
+			return uri;
+		}
+
+		return {
+
+			/**
+			 * Expand a URI Template with parameters to form a URI.
+			 *
+			 * Full implementation (level 4) of rfc6570.
+			 * @see https://tools.ietf.org/html/rfc6570
+			 *
+			 * @param {string} template URI template
+			 * @param {Object} [params] params to apply to the template durring expantion
+			 * @returns {string} expanded URI
+			 */
+			expand: expandTemplate
+
+		};
+
+	});
+
+}(
+	typeof define === 'function' && define.amd ? define : function (factory) { module.exports = factory(require); }
+	// Boilerplate for AMD and Node
+));
+
+},{"./uriEncoder":72}],74:[function(require,module,exports){
+module.exports = extend
+
+var hasOwnProperty = Object.prototype.hasOwnProperty;
+
+function extend(target) {
+    for (var i = 1; i < arguments.length; i++) {
+        var source = arguments[i]
+
+        for (var key in source) {
+            if (hasOwnProperty.call(source, key)) {
+                target[key] = source[key]
+            }
+        }
+    }
+
+    return target
+}
+
+},{}]},{},[1]);

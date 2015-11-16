@@ -51,7 +51,7 @@ gulp.task('browserify', function() {
         .bundle()
         .pipe(source('main.js'))
         // saves it the public/js/ directory
-        .pipe(gulp.dest('client/app/dist/js'));
+        .pipe(gulp.dest('client/dist/js'));
 })
 
 
@@ -69,4 +69,4 @@ gulp.task('app', function(){
   .pipe(open(options));
 });
 
-gulp.task('default', ['start', 'app']);
+gulp.task('default', ['start', 'browserify', 'app']);
