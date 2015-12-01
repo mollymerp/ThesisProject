@@ -9,10 +9,7 @@
       vm.callback = function(map) {
         RouteService.map = map;
         vm.map = map;
-        map.setView([37.774, -122.496], 13);
-        // new L.Control.Zoom({
-        //   position: 'topleft'
-        // }).addTo(map);
+        map.setView([37.774, -122.446], 13);
         map.scrollWheelZoom.disable();
       };
 
