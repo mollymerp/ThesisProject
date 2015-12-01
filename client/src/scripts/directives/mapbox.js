@@ -3,7 +3,7 @@
   'use strict';
 
   angular.module('app')
-    .directive('mapbox', [function() {
+    .directive('mapbox', ['RouteService', function(RouteService) {
       var _mapboxMap;
       return {
         // restrict this directive to an html element ('E':element, 'A': attribute, 'C': component)
@@ -35,7 +35,7 @@
             bounds.max.y = bounds.max.y + 1000;
             return bounds;
           };
-          scope.callback(map);
+          RouteService.initMap(map);
         }
       };
     }]);

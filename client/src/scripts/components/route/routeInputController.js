@@ -24,7 +24,7 @@
       vm.submitRoute = function(start, end, prefs) {
 
         var start = vm.selectedStart ? vm.selectedStart.center : [-122.428561, 37.767191];
-        var end = vm.selectedEnd ? m.selectedEnd.center : [-122.437364, 37.774222];
+        var end = vm.selectedEnd ? vm.selectedEnd.center : [-122.437364, 37.774222];
         var prefs = '';
 
         console.log("start", vm.selectedStart, "end", vm.selectedEnd);

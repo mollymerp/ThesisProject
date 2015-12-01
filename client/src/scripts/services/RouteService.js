@@ -8,6 +8,11 @@
       route.map;
       route.turfLine;
 
+      route.initMap = function (map){
+        map.setView([37.774, -122.446], 13);
+        map.scrollWheelZoom.disable();
+        route.map = map;
+      }
       route.postRouteRequest = function(start, end, preferences) {
         return $http({
           method: 'POST',
